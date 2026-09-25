@@ -8,6 +8,12 @@ ripening rooms and distribution centres, and what each stage cost in kilometres,
 It is built as a teaching tool: the goal is to make an invisible history visible, with every claim labelled
 by how sure we are about it.
 
+The map is a satellite globe with a drifting cloud deck. Choosing a product plays its journey: the camera flies
+to the farm, a little truck, ship, plane, train or ferry travels each leg while its trail lights up, every stop
+pops up as it is reached, and a running ledger counts up distance, time, CO2e, fuel and money for one retail pack
+until the shelf price is complete. The journey can be paused, scrubbed, sped up, skipped or replayed (space,
+arrow keys and Esc work too), and with reduced motion it opens on its final frame.
+
 ## Run it
 
 ```bash
@@ -49,6 +55,12 @@ src/data/factors.ts            emission, speed, cost and storage factors, with s
 src/model/compute.ts           turns a route + chain + store into stages with km, hours, CO2e and EUR
 src/model/geo.ts               great-circle and arc geometry, antimeridian handling
 src/model/routing.ts           optional real-road geometry for truck legs (public OSRM demo server)
+src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
+src/map/clouds.ts              WebGL cloud layer: noise-baked cloud texture on an elevated sphere, with shadows
+src/map/camera.ts              globe-aware framing and a scrubbable fly-to curve
+src/journey/timeline.ts        turns a computed route into timed segments, camera poses and running totals
+src/journey/vehicles.ts        side-view SVG vehicles for each transport mode
+src/components/JourneyPlayer.tsx  the journey animation: vehicle, trail, stop pins, ledger, scrubber, finale
 src/components/                map, sidebar panels, directions-style route view, about page
 ```
 
@@ -64,5 +76,6 @@ src/components/                map, sidebar panels, directions-style route view,
 
 ## Licences
 
-Store data © OpenStreetMap contributors, ODbL. Basemap by OpenFreeMap / OpenMapTiles. Everything else in this
+Store data © OpenStreetMap contributors, ODbL. Satellite imagery © Esri, Maxar, Earthstar Geographics. Labels,
+borders and roads by OpenFreeMap / OpenMapTiles. Everything else in this
 repository is original work; use it freely with attribution.

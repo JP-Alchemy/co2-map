@@ -1,4 +1,4 @@
-import { HANDLING_EUR_PER_KG, IMPORT_MARGIN, MODES, SOURCES, STORAGE } from '../data/factors';
+import { FUEL_CO2E_PER_L, HANDLING_EUR_PER_KG, IMPORT_MARGIN, MODES, SOURCES, STORAGE } from '../data/factors';
 import { useApp } from '../store';
 import { ConfidenceBadge } from './ui';
 
@@ -31,6 +31,11 @@ export function About() {
           <li><b>Storage and ripening</b>: days at each stop × a cooling factor.</li>
         </ol>
         <p>The price split starts from a typical shelf price and subtracts VAT, an estimated farm-gate price, packing, freight at typical contract rates, storage, handling ({HANDLING_EUR_PER_KG.toFixed(2)} €/kg per stop) and an importer margin ({Math.round(IMPORT_MARGIN * 100)}%). Whatever remains is the retailer's gross margin, which covers the store, staff, waste and profit.</p>
+
+        <p>Fuel burned is shown as litres of diesel-equivalent: the transport CO2e divided by {FUEL_CO2E_PER_L} kg CO2e per litre (DEFRA 2024, well-to-wheel). Ships burn heavy fuel oil and planes kerosene, but per litre they emit about the same, so it is a fair way to compare modes.</p>
+
+        <h3>The journey animation</h3>
+        <p>Choosing a product plays its journey on the globe. Time is compressed: each leg takes a few seconds, more for longer distances (on a logarithmic scale, so a 20 km truck hop and a 10,000 km crossing both stay watchable). The counters show the modelled values for one retail pack, adding each leg's distance, time, CO2e, fuel and freight cost as the vehicle moves, and each stop's storage, handling and margins when it is reached. The shelf price is only complete once the product reaches your store, where the retailer's margin and VAT are added. The clouds are decorative, not real weather.</p>
 
         <h3>Transport factors</h3>
         <table className="factors">
