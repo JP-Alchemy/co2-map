@@ -68,7 +68,7 @@ export default function App() {
 
   return (
     <div className={`app mode-${mode}`}>
-      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${journeyActive ? 'journey-on' : ''} ${dockVisible && dockOpen ? 'dock-open' : ''}`}>
+      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${journeyActive ? 'journey-on' : ''}`}>
         <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={journeyActive}
           preview={preview} dockOpen={dockVisible && dockOpen} onReady={setMap} />
         <div className="map-fx" aria-hidden="true" />

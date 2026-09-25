@@ -408,14 +408,19 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
 .g-a { color: #22c55e; } .g-e { color: #f43f5e; }
 
 /* ================================================================ the hotbar (products) */
-.hotbar { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; max-width: calc(100% - 24px); display: flex; align-items: stretch; gap: 10px; padding: 8px 10px; border-radius: 20px; animation: hotbar-in .6s cubic-bezier(.2,.8,.2,1) both; }
-.dock-open .hotbar { left: calc(50% + 201px); max-width: calc(100% - 426px); }
-@keyframes hotbar-in { from { opacity: 0; transform: translate(-50%, 40px); } to { opacity: 1; transform: translate(-50%, 0); } }
-.hb-side { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-right: 10px; border-right: 1px solid var(--line); flex-shrink: 0; }
+/* Full width along the bottom (the dock stops above it). The empty third column balances the month picker, so
+   the tiles are centred on the screen when they fit, and scroll from the left when they don't. */
+.hotbar {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; padding: 8px 10px; border-radius: 20px;
+  display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, max-content) minmax(0, 1fr); column-gap: 10px; align-items: stretch;
+  animation: hotbar-in .6s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes hotbar-in { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+.hb-side { justify-self: start; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding-right: 10px; border-right: 1px solid var(--line); }
 .hb-month { display: flex; align-items: center; gap: 5px; font-size: 15px; }
 .hb-month select { font-size: 12.5px; padding: 3px 6px; }
 .hb-hint { font-size: 11px; line-height: 1.25; color: var(--muted); }
-.hb-scroll { display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 2px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.2) transparent; scroll-snap-type: x proximity; }
+.hb-scroll { min-width: 0; display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 2px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.2) transparent; scroll-snap-type: x proximity; }
 .hb-group { position: relative; display: flex; gap: 6px; padding-top: 15px; }
 .hb-group-label { position: absolute; left: 3px; top: 0; font-size: 9.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .hb-tile {
@@ -535,7 +540,7 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
   .mode-store .dock, .mode-explore .dock { bottom: 110px; max-height: calc(100% - 180px); }
   .mode-store .dock { max-height: 34%; }
   .dock.closed { transform: translateY(calc(100% - 50px)); }
-  .hotbar, .dock-open .hotbar { left: 8px; right: 8px; max-width: none; transform: none; animation: none; }
+  .hotbar { left: 8px; right: 8px; bottom: 8px; animation: none; }
   .hb-side { padding-right: 6px; }
   .hb-hint { display: none; }
   .hb-tip { display: none; }
