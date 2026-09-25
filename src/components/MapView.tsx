@@ -17,7 +17,7 @@ const NL_BOUNDS: [number, number, number, number] = [3.2, 50.7, 7.3, 53.6];
 const GLOBE_CENTER: [number, number] = [-10, 32];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** One full rotation of the idle globe takes this long */
-const SPIN_MS = 90_000;
+const SPIN_MS = 110_000;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
 const ROUTE_LAYERS = ['legs-casing', 'legs', 'legs-dash', 'legs-active', 'nodes', 'nodes-label'];

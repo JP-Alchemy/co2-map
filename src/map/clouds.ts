@@ -1,30 +1,45 @@
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MapLibreMap } from 'maplibre-gl';
 
 /**
- * A stylised cloud deck for the globe, drawn as a MapLibre custom layer.
+ * A stylised, layered cloud deck for the globe, drawn as a MapLibre custom layer.
  *
- * Over the first few frames a seamless cloud field is baked into a 2048×1024 equirectangular texture on the GPU
- * (domain-warped simplex fbm sampled on the sphere, so there is no seam at the antimeridian). Every frame
- * then only samples that texture twice: once on a sphere 60 km above the ground for the clouds, and once
- * on the ground, offset away from the sun, for their shadows. The deck drifts eastwards, thickens and
- * thins over time, follows a rough climatology (cloudy tropics and storm tracks, clear subtropical
- * deserts) and fades out as you zoom in towards street level.
+ * Over the first few frames the cloud fields are baked into a 2048×1024 equirectangular texture on the GPU
+ * (domain-warped simplex fbm sampled on the sphere, so there is no seam at the antimeridian): the main deck,
+ * streaky high cirrus and two slow "weather" fields. Every frame then draws three shells from that texture:
+ * shadows on the ground, the deck 60 km up and the cirrus above it.
+ *
+ * Two things make it read as depth rather than a painted texture. The layers drift west at their own
+ * speeds and, as the camera turns the globe, slide further than the ground beneath them (parallax, the
+ * higher layer more), so the idle spin shows them as separate sheets. And the clouds keep changing shape:
+ * a slowly evolving warp stretches and folds them, the weather fields build them up and dissolve them, and
+ * live noise boils their edges and tops, lit from the sun's side so the puffs look solid. The deck follows
+ * a rough climatology (cloudy tropics and storm tracks, clear subtropical deserts) and fades out as you
+ * zoom in towards street level.
  */
 
 const TEX_W = 2048, TEX_H = 1024;
 /** the texture is baked over this many frames */
-const BAKE_STRIPS = 16;
-const CLOUD_ALTITUDE_M = 60_000;
+const BAKE_STRIPS = 32;
+const DECK_ALTITUDE_M = 60_000;
+const CIRRUS_ALTITUDE_M = 110_000;
 /** step of the sphere mesh in degrees */
-const MESH_STEP = 3;
+const MESH_STEP = 2;
+
+/**
+ * How a layer moves: its own westward drift (degrees per second) and how much further than the ground it
+ * slides when the camera turns the globe (parallax: 0.3 = 30% further). `seed` just offsets its pattern.
+ */
+interface Motion { drift: number; parallax: number; seed: number }
+const DECK: Motion = { drift: 0.45, parallax: 0.3, seed: 0 };
+const CIRRUS: Motion = { drift: 0.75, parallax: 0.6, seed: 140 };
 
 const NOISE = /* glsl */ `
-// 3D simplex noise, Ashima Arts / Stefan Gustavson (MIT)
+// 3D simplex noise and its gradient, after Ashima Arts / Stefan Gustavson (MIT)
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
 vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-float snoise(vec3 v) {
+float snoise(vec3 v, out vec3 grad) {
   const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
   const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
   vec3 i = floor(v + dot(v, C.yyy));
@@ -60,9 +75,13 @@ float snoise(vec3 v) {
   vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
   p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
   vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
-  m = m * m;
-  return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+  vec4 m2 = m * m, m4 = m2 * m2;
+  vec4 px = vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3));
+  vec4 k = m2 * m * px;
+  grad = 42.0 * (-8.0 * (k.x * x0 + k.y * x1 + k.z * x2 + k.w * x3) + m4.x * p0 + m4.y * p1 + m4.z * p2 + m4.w * p3);
+  return 42.0 * dot(m4, px);
 }
+float snoise(vec3 v) { vec3 g; return snoise(v, g); }
 float fbm(vec3 p, int octaves) {
   float sum = 0.0, amp = 0.5;
   for (int i = 0; i < 8; i++) {
@@ -86,60 +105,100 @@ out vec4 fragColor;
 ${NOISE}
 const float PI = 3.141592653589793;
 vec3 sphere(float lon, float lat) { return vec3(sin(lon) * cos(lat), sin(lat), cos(lon) * cos(lat)); }
-float clouds(vec3 p) {
+float deck(vec3 p) {
   vec3 q = p * 2.1;
   vec3 warp = vec3(fbm(q + vec3(0.0, 1.7, 3.1), 4), fbm(q + vec3(5.2, 1.3, 8.4), 4), fbm(q + vec3(2.9, 7.7, 4.6), 4));
   // stretch the noise east-west a little so the deck reads as weather bands rather than blobs
   vec3 s = q * vec3(1.0, 1.35, 1.0) * 1.7 + warp * 1.25;
   return fbm(s, 7) * 0.5 + 0.5;
 }
+float cirrus(vec3 p) {
+  vec3 q = p * 2.6;
+  vec3 warp = vec3(fbm(q + vec3(3.3, 1.1, 7.7), 3), fbm(q + vec3(8.1, 4.4, 2.2), 3), fbm(q + vec3(1.9, 6.6, 5.5), 3));
+  // squashed along the polar axis: long, thin east-west streaks, bent by the warp
+  vec3 s = q * vec3(0.8, 4.0, 0.8) + warp * 2.0;
+  return fbm(s, 5) * 0.5 + 0.5;
+}
 void main() {
   vec2 uv = gl_FragCoord.xy / u_size;
-  float lon = (uv.x - 0.5) * 2.0 * PI, lat = (uv.y - 0.5) * PI;
-  float d = clouds(sphere(lon, lat));
-  float slow = fbm(sphere(lon, lat) * 1.3 + 17.0, 3) * 0.5 + 0.5;
-  fragColor = vec4(d, 0.0, slow, 1.0);
+  vec3 p = sphere((uv.x - 0.5) * 2.0 * PI, (uv.y - 0.5) * PI);
+  // r: the deck, g: cirrus, b and a: two slow weather fields
+  fragColor = vec4(deck(p), cirrus(p), fbm(p * 1.3 + 17.0, 3) * 0.5 + 0.5, fbm(p * 1.1 - 23.0, 3) * 0.5 + 0.5);
 }`;
 
 const DRAW_FS = /* glsl */ `#version 300 es
 precision highp float;
-in vec2 v_lonlat;
+in vec2 v_uv;
 uniform sampler2D u_tex;
 uniform float u_time;
 uniform float u_opacity;
-uniform float u_shadow;
+uniform float u_layer;
 out vec4 fragColor;
+${NOISE}
 const float PI = 3.141592653589793;
+/** a step towards the sun (north-west), in texture space */
+const vec2 SUN = vec2(-0.0019, 0.0029);
+vec3 sphere(float lon, float lat) { return vec3(sin(lon) * cos(lat), sin(lat), cos(lon) * cos(lat)); }
 void main() {
-  float lat = v_lonlat.y;
+  float lon = v_uv.x, lat = v_uv.y;
   float alat = abs(degrees(lat));
-  vec2 uv = vec2(v_lonlat.x / (2.0 * PI) + 0.5, lat / PI + 0.5);
-  // slow eastward drift of the whole deck, plus an opposite drift of the "weather" field that thickens and thins it
-  vec2 uvA = uv + vec2(u_time * 0.0009, 0.0);
-  vec2 uvB = uv - vec2(u_time * 0.0005, 0.0);
-  if (u_shadow > 0.5) { uvA += vec2(0.0035, -0.0028); uvB += vec2(0.0035, -0.0028); }
-  vec4 t = texture(u_tex, uvA);
-  // the same field a little towards the sun (north-west), for cheap self-shadowing
-  float toward = texture(u_tex, uvA + vec2(-0.0019, 0.0029)).r;
-  float weather = texture(u_tex, uvB).b;
+  vec2 uv = vec2(lon / (2.0 * PI) + 0.5, lat / PI + 0.5);
+  float polar = 1.0 - smoothstep(76.0, 88.0, alat);
+  // two weather fields drifting through the clouds, building them up in some places and dissolving them in others
+  float wB = texture(u_tex, uv + vec2(u_time * 0.0015, 0.0)).b - 0.5;
+  float wA = texture(u_tex, uv - vec2(u_time * 0.0011, 0.0)).a - 0.5;
+
+  if (u_layer > 1.5) {
+    // high cirrus: thin, streaky, bright, strongest over the storm tracks
+    float c = texture(u_tex, uv).g + wA * 0.4 + 0.05 * exp(-pow((alat - 50.0) / 14.0, 2.0)) - 0.08 * exp(-pow((alat - 22.0) / 10.0, 2.0));
+    float a = smoothstep(0.63, 0.86, c) * polar;
+    float cs = texture(u_tex, uv + SUN * 0.7).g;
+    vec3 col = mix(vec3(0.84, 0.89, 0.96), vec3(1.0), clamp(0.8 - (cs - c) * 4.0, 0.0, 1.0));
+    float alpha = a * 0.34 * u_opacity;
+    fragColor = vec4(col * alpha, alpha);
+    return;
+  }
+
   // rough climatology: cloudy equator (ITCZ) and mid-latitude storm tracks, clearer subtropics
   float clim = 0.07 * exp(-pow(degrees(lat) / 8.0, 2.0))
              - 0.10 * exp(-pow((alat - 25.0) / 9.0, 2.0))
              + 0.07 * exp(-pow((alat - 57.0) / 12.0, 2.0));
-  float d = t.r + (weather - 0.5) * 0.45 + clim;
-  float a = smoothstep(0.54, 0.78, d);
-  a *= 1.0 - smoothstep(78.0, 89.0, alat);
-  if (u_shadow > 0.5) {
-    float s = a * 0.32 * u_opacity;
-    fragColor = vec4(vec3(0.0), s);
+  float weather = (wB + wA) * 0.32 + clim;
+
+  if (u_layer < 0.5) {
+    // shadows: the deck as seen from the ground looking towards the sun, softened
+    float ds = texture(u_tex, uv + SUN * 1.6, 1.5).r + weather;
+    fragColor = vec4(0.0, 0.0, 0.0, smoothstep(0.52, 0.8, ds) * polar * 0.32 * u_opacity);
     return;
   }
-  // light: brighter where the sun-side sample is thinner, blue-grey in the thick cores
-  float lit = clamp(0.9 - (toward - t.r) * 5.0, 0.55, 1.08);
-  float core = smoothstep(0.7, 0.95, d);
-  vec3 col = mix(vec3(0.80, 0.85, 0.93), vec3(1.0), lit - 0.55);
-  col = mix(col, col * vec3(0.86, 0.9, 0.97), core * 0.6);
-  float alpha = a * 0.92 * u_opacity;
+
+  float r = texture(u_tex, uv).r;
+  float rs = texture(u_tex, uv + SUN).r;
+  vec3 pc = sphere(lon, lat);
+  float fine = 1.0 - smoothstep(0.25, 0.6, length(fwidth(pc)) * 37.0); // fade the fine octave before it aliases
+  float d = r + weather;
+  // clear sky stays clear whatever the live detail does below
+  if (d < 0.45) { fragColor = vec4(0.0); return; }
+
+  // live detail: two octaves evolving through time, so edges boil and tops churn as they drift
+  vec3 g1, g2;
+  float n1 = snoise(pc * 16.0 + u_time * vec3(0.05, 0.04, -0.045), g1);
+  float n2 = snoise(pc * 37.0 + vec3(3.1, 7.4, 1.2) - u_time * vec3(0.06, -0.08, 0.05), g2) * fine;
+  float n = n1 * 0.65 + n2 * 0.35;
+  d += n * 0.065;
+  float a = smoothstep(0.54, 0.78, d) * polar;
+
+  // light from the north-west: slopes facing the sun are bright, the far sides of the towers blue-grey.
+  // The deck's slope comes from a second texture tap, the detail's from the noise gradient.
+  vec3 east = vec3(cos(lon), 0.0, -sin(lon));
+  vec3 north = vec3(-sin(lat) * sin(lon), cos(lat), -sin(lat) * cos(lon));
+  vec3 sunDir = normalize(north * 0.8 - east * 0.6);
+  float slope = (rs - r) + dot(g1 * (16.0 * 0.65) + g2 * (37.0 * 0.35 * fine), sunDir) * 0.065 * 0.009;
+  float lit = clamp(0.92 - slope * 5.0, 0.5, 1.12);
+  float core = smoothstep(0.72, 1.0, d);
+  vec3 col = mix(vec3(0.70, 0.76, 0.87), vec3(1.0), smoothstep(0.5, 1.08, lit));
+  col = mix(col, col * vec3(0.86, 0.9, 0.97), core * 0.55);
+  float alpha = a * 0.93 * u_opacity;
   fragColor = vec4(col * alpha, alpha);
 }`;
 
@@ -147,13 +206,23 @@ function drawVS(prelude: string, define: string) {
   return `#version 300 es
 ${prelude}
 ${define}
+${NOISE}
 in vec2 a_lonlat;
 uniform float u_elevation;
-out vec2 v_lonlat;
+uniform float u_off;
+uniform float u_time;
+uniform float u_layer;
+out vec2 v_uv;
+vec3 sphere(float lon, float lat) { return vec3(sin(lon) * cos(lat), sin(lat), cos(lon) * cos(lat)); }
 void main() {
-  v_lonlat = a_lonlat;
   float lon = a_lonlat.x, lat = a_lonlat.y;
-  vec3 sp = vec3(sin(lon) * cos(lat), sin(lat), cos(lon) * cos(lat));
+  // where this point sits in the layer's own drifting frame
+  float lonC = lon + u_off;
+  // a slowly evolving swirl that stretches and folds the clouds (the shadows share the deck's)
+  vec3 q = sphere(lonC, lat) * 3.0 + step(1.5, u_layer) * 7.3;
+  vec2 w = vec2(snoise(q + u_time * vec3(0.035, 0.025, -0.03)), snoise(q + vec3(11.3, 5.9, 2.4) - u_time * vec3(0.025, -0.035, 0.025)));
+  v_uv = vec2(lonC + w.x * 0.035 / max(cos(lat), 0.2), lat + w.y * 0.035);
+  vec3 sp = sphere(lon, lat);
   float latc = clamp(lat, -1.4844, 1.4844);
   vec2 merc = vec2((lon + PI) / (2.0 * PI), 0.5 - log(tan(PI / 4.0 + latc / 2.0)) / (2.0 * PI));
 #ifdef GLOBE
@@ -203,6 +272,9 @@ export class CloudLayer implements CustomLayerInterface {
   private repaintTimer: number | undefined;
   private failed = false;
   private readonly t0 = performance.now();
+  /** how far the camera has turned the globe eastwards, in degrees and unwrapped: drives the parallax */
+  private turned = 0;
+  private lastLng: number | null = null;
 
   onAdd(map: MapLibreMap, gl: WebGL2RenderingContext) {
     this.map = map;
@@ -302,7 +374,7 @@ export class CloudLayer implements CustomLayerInterface {
     let p = this.programs.get(shaderData.variantName);
     if (p) return p;
     const program = compile(gl, drawVS(shaderData.vertexShaderPrelude, shaderData.define), DRAW_FS);
-    const names = ['u_projection_matrix', 'u_projection_fallback_matrix', 'u_projection_tile_mercator_coords', 'u_projection_clipping_plane', 'u_projection_transition', 'u_elevation', 'u_tex', 'u_time', 'u_opacity', 'u_shadow'];
+    const names = ['u_projection_matrix', 'u_projection_fallback_matrix', 'u_projection_tile_mercator_coords', 'u_projection_clipping_plane', 'u_projection_transition', 'u_elevation', 'u_tex', 'u_time', 'u_opacity', 'u_layer', 'u_off'];
     const loc: DrawProgram['loc'] = {};
     for (const n of names) loc[n] = gl.getUniformLocation(program, n);
     p = { program, loc, attr: gl.getAttribLocation(program, 'a_lonlat') };
@@ -313,11 +385,19 @@ export class CloudLayer implements CustomLayerInterface {
   render(gl: WebGL2RenderingContext, options: CustomRenderMethodInput) {
     const map = this.map;
     if (!map || !this.tex || !this.mesh || this.failed || !this.enabled) return;
+    const still = reducedMotion();
+    // follow the camera round the planet, across the antimeridian, for the parallax
+    const lng = map.getCenter().lng;
+    if (this.lastLng !== null && !still) { const d = lng - this.lastLng; this.turned += d - Math.round(d / 360) * 360; }
+    this.lastLng = lng;
     if (!options.shaderData.define.includes('GLOBE')) return;
     const opacity = cloudOpacity(map.getZoom());
     if (opacity <= 0) return;
     let p: DrawProgram;
     try { p = this.program(gl, options.shaderData); } catch (e) { this.failed = true; console.warn('Cloud layer disabled:', e); return; }
+    const t = still ? 0 : (performance.now() - this.t0) / 1000;
+    // a layer's longitude offset: its own drift plus a share of the camera's turn, so it outruns the ground
+    const offset = (m: Motion) => (((m.drift * t + m.parallax * this.turned + m.seed) % 360) * Math.PI) / 180;
     const pd = options.defaultProjectionData;
     gl.useProgram(p.program);
     gl.uniformMatrix4fv(p.loc.u_projection_matrix, false, pd.mainMatrix);
@@ -325,7 +405,7 @@ export class CloudLayer implements CustomLayerInterface {
     gl.uniform4f(p.loc.u_projection_tile_mercator_coords, ...pd.tileMercatorCoords);
     gl.uniform4f(p.loc.u_projection_clipping_plane, ...pd.clippingPlane);
     gl.uniform1f(p.loc.u_projection_transition, pd.projectionTransition);
-    gl.uniform1f(p.loc.u_time, (performance.now() - this.t0) / 1000);
+    gl.uniform1f(p.loc.u_time, t);
     gl.uniform1f(p.loc.u_opacity, opacity);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
@@ -337,17 +417,22 @@ export class CloudLayer implements CustomLayerInterface {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.CULL_FACE);
-    // shadows on the ground, then the clouds themselves above them
-    gl.uniform1f(p.loc.u_shadow, 1);
-    gl.uniform1f(p.loc.u_elevation, 0);
-    gl.drawElements(gl.TRIANGLES, this.mesh.count, gl.UNSIGNED_SHORT, 0);
-    gl.uniform1f(p.loc.u_shadow, 0);
-    gl.uniform1f(p.loc.u_elevation, CLOUD_ALTITUDE_M);
-    gl.drawElements(gl.TRIANGLES, this.mesh.count, gl.UNSIGNED_SHORT, 0);
+    const count = this.mesh.count;
+    const pass = (layer: number, elevation: number, off: number) => {
+      gl.uniform1f(p.loc.u_layer, layer);
+      gl.uniform1f(p.loc.u_elevation, elevation);
+      gl.uniform1f(p.loc.u_off, off);
+      gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, 0);
+    };
+    // shadows on the ground, the deck above them, the cirrus highest of all
+    const deck = offset(DECK);
+    pass(0, 0, deck);
+    pass(1, DECK_ALTITUDE_M, deck);
+    pass(2, CIRRUS_ALTITUDE_M, offset(CIRRUS));
     gl.disableVertexAttribArray(p.attr);
 
-    // keep the deck drifting: ~15 fps is plenty for motion this slow; interaction renders at full rate anyway
-    if (!reducedMotion()) {
+    // keep the clouds moving: ~15 fps is plenty for motion this slow; interaction and the spin render at full rate anyway
+    if (!still) {
       window.clearTimeout(this.repaintTimer);
       this.repaintTimer = window.setTimeout(() => this.map?.triggerRepaint(), 66);
     }
