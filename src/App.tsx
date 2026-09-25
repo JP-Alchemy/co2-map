@@ -4,6 +4,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import { CHAIN_BY_ID, PRODUCT_BY_ID } from './data';
 import { pickRoute, type ComputedRoute } from './model/compute';
 import { buildLifecycle, type Flow, type LcFocus, type Lifecycle } from './model/lifecycle';
+import { nearbyStores } from './model/near';
 import { useComputedRoute } from './model/useRoute';
 import { storePlaceOf, useApp } from './store';
 import type { StoreProps } from './types';
@@ -16,6 +17,7 @@ import { HudControls, QuestTrail } from './components/Hud';
 import { JourneyPlayer } from './components/JourneyPlayer';
 import { LifecyclePanel } from './components/LifecyclePanel';
 import { MapView } from './components/MapView';
+import { NearbyPanel } from './components/NearbyPanel';
 import { ProductBar } from './components/ProductBar';
 import { RoutePanel } from './components/RoutePanel';
 import { StoreCard } from './components/StoreCard';
@@ -31,7 +33,8 @@ export default function App() {
   const [dockOpen, setDockOpen] = useState(true);
   const [lcFocus, setLcFocus] = useState<LcFocus>(null);
   const [lcJourney, setLcJourney] = useState<{ flow: Flow; run: number } | null>(null);
-  const { lens, lifecycleId, chainId, store, productId, routeId, month, view, useRoads, fx, setProduct, setRoute, setMonth, setLifecycle } = useApp();
+  const [nearFocus, setNearFocus] = useState<string | null>(null);
+  const { lens, lifecycleId, chainId, store, productId, routeId, month, view, useRoads, fx, nearby, here, setProduct, setRoute, setMonth, setLifecycle } = useApp();
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/stores.geojson`).then((r) => r.json()).then(setStores).catch(() => setStores({ type: 'FeatureCollection', features: [] }));
@@ -67,6 +70,9 @@ export default function App() {
     else setFocusStep((f) => ({ index, n: (f?.n ?? 0) + 1 }));
   };
 
+  // ---- near me: the stores around the player
+  const nearHits = useMemo(() => (stores && here ? nearbyStores(stores, here.coords) : null), [stores, here]);
+
   // ---- the product lens: one product across every market it reaches
   const lcProduct = lifecycleId ? PRODUCT_BY_ID[lifecycleId] : null;
   const lifecycle = useMemo(() => (lens === 'product' && lcProduct ? buildLifecycle(lcProduct, month) : null), [lens, lcProduct, month]);
@@ -87,7 +93,7 @@ export default function App() {
 
   const mode = lens === 'product'
     ? (!lifecycle ? 'landing' : lcJourneyActive ? 'journey' : 'lifecycle')
-    : (!chain ? 'landing' : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore');
+    : (!chain ? (nearby ? 'nearby' : 'landing') : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore');
   // each new screen opens the dock again; a hover preview never outlives the hotbar
   const [lastMode, setLastMode] = useState(mode);
   if (mode !== lastMode) {
@@ -95,14 +101,15 @@ export default function App() {
     if (mode !== 'store' && mode !== 'explore') setPreview(null);
     if (lens !== 'product' || mode === 'journey') setLcPreview(null);
   }
-  const dockVisible = mode === 'chain' || mode === 'store' || mode === 'explore' || mode === 'lifecycle';
+  const dockVisible = mode === 'nearby' || mode === 'chain' || mode === 'store' || mode === 'explore' || mode === 'lifecycle';
   const anyJourney = journeyActive || lcJourneyActive;
 
   return (
     <div className={`app mode-${mode} lens-${lens} ${lcPreview ? 'previewing' : ''}`}>
       <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${anyJourney ? 'journey-on' : ''}`}>
         <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={anyJourney}
-          preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcPreview={lcPreview} lcFocus={lcFocus} onLcFocus={setLcFocus} onReady={setMap} />
+          preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcPreview={lcPreview} lcFocus={lcFocus} onLcFocus={setLcFocus}
+          near={mode === 'nearby' ? { here, hits: nearHits, focus: nearFocus } : null} onReady={setMap} />
         <div className="map-fx" aria-hidden="true" />
 
         <QuestTrail />
@@ -112,9 +119,11 @@ export default function App() {
 
         {dockVisible && (
           <Dock key={mode} open={dockOpen} onToggle={() => setDockOpen((o) => !o)}
-            title={mode === 'lifecycle' && lifecycle ? <>🌍 {lifecycle.product.emoji} {lifecycle.product.name} across Europe</>
+            title={mode === 'nearby' ? <>📍 Supermarkets near you</>
+              : mode === 'lifecycle' && lifecycle ? <>🌍 {lifecycle.product.emoji} {lifecycle.product.name} across Europe</>
               : mode === 'chain' && chain ? <><span className="dock-swatch" style={{ background: chain.color, color: chain.textColor }}>{chain.name[0]}</span>{chain.name}</>
               : mode === 'store' ? <>📍 Your store</> : <>{product?.emoji} {product?.name}</>}>
+            {mode === 'nearby' && <NearbyPanel stores={stores} hits={nearHits} onFocus={setNearFocus} />}
             {mode === 'lifecycle' && lifecycle && <LifecyclePanel lc={lifecycle} focus={lcFocus} onFocus={setLcFocus} onFollow={followFlow} />}
             {mode === 'chain' && chain && <ChainPanel chain={chain} stores={stores} />}
             {mode === 'store' && chain && store && <StoreCard chain={chain} store={store} />}

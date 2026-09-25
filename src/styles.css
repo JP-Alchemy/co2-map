@@ -367,8 +367,8 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
 .title-card p { margin: 14px auto 0; max-width: 580px; font-size: 15px; line-height: 1.55; color: #cbd5e1; text-shadow: 0 2px 16px rgba(0,0,0,.9); }
 @keyframes title-in { from { opacity: 0; transform: translate(-50%, -14px); filter: blur(6px); } to { opacity: 1; transform: translate(-50%, 0); filter: none; } }
 
-.chain-select { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5; width: min(1080px, calc(100% - 24px)); }
-.cs-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.chain-select { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5; width: min(1320px, calc(100% - 24px)); }
+.cs-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 .cs-card {
   display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 2px; align-items: center; text-align: left; padding: 14px 14px 12px; border-radius: 18px; color: #fff;
   transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s, border-color .22s; animation: card-in .7s cubic-bezier(.2,.8,.2,1) both;
@@ -533,6 +533,7 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
   .chain-select { bottom: 64px; }
   .cs-row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding: 10px 2px 4px; }
   .cs-card { flex: 0 0 168px; scroll-snap-align: center; }
+  .cs-card.near { flex-basis: 196px; }
   .dock { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 46%; }
   .mode-store .dock, .mode-explore .dock { bottom: 192px; max-height: calc(100% - 262px); }
   .mode-store .dock { max-height: 34%; }
@@ -702,3 +703,46 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
   .mt-bubble { font-size: 11px; padding: 4px 8px; gap: 4px; }
   .mt-bubble small { display: none; }
 }
+
+/* ================================================================ near me */
+.cs-card.near { border-style: dashed; border-color: rgba(56,189,248,.5); background: linear-gradient(160deg, rgba(56,189,248,.16), rgba(8,13,28,.66) 60%); }
+.cs-card.near .cs-logo { background: radial-gradient(circle at 35% 30%, #7dd3fc, #0284c7); font-size: 24px; }
+.near-panel h4:first-of-type { margin-top: 14px; }
+.near-status { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; padding: 9px 11px; border-radius: 12px; font-size: 12.5px; line-height: 1.4; color: #cbd5e1; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.near-status.warn { color: #fde68a; background: rgba(253,230,138,.07); border-color: rgba(253,230,138,.25); }
+.near-spin { flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: #38bdf8; animation: near-spin .8s linear infinite; }
+@keyframes near-spin { to { transform: rotate(360deg); } }
+.near-where { margin: 0; font-size: 13px; color: #e2e8f0; }
+.near-where small { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.near-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.near-row {
+  width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; text-align: left; color: #fff;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); transition: border-color .15s, transform .15s, background .15s;
+}
+.near-row:hover, .near-row:focus-visible { border-color: var(--c); background: rgba(255,255,255,.08); transform: translateX(3px); outline: none; }
+.near-row.top { border-color: color-mix(in srgb, var(--c) 70%, transparent); box-shadow: 0 0 22px -10px var(--c); }
+.near-logo { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 15px; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+.near-name { min-width: 0; display: flex; flex-direction: column; }
+.near-name b { font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.near-name em { font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: #38bdf8; color: #082f49; }
+.near-name small, .near-dist small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.near-dist { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.near-dist b { font-size: 14px; }
+.near-search { margin-top: 18px; display: grid; gap: 6px; }
+.near-search label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.near-search div { display: flex; gap: 6px; }
+.near-search button { flex-shrink: 0; border: 1px solid var(--glass-line); border-radius: 12px; padding: 0 14px; background: rgba(255,255,255,.08); color: #fff; font-weight: 700; }
+.near-search button:disabled { opacity: .45; }
+.near-gps { width: 100%; margin-top: 10px; padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(56,189,248,.45); background: rgba(56,189,248,.12); color: #e0f2fe; font-weight: 700; font-size: 13px; transition: background .15s; }
+.near-gps:hover:not(:disabled) { background: rgba(56,189,248,.22); }
+.near-gps:disabled { opacity: .6; }
+.near-closest em { font-style: normal; font-weight: 600; font-size: 11.5px; color: #7dd3fc; margin-left: 4px; }
+/* the player's dot */
+.you-marker { width: 22px; height: 22px; pointer-events: none; }
+.ym-dot { position: absolute; inset: 3px; border-radius: 50%; background: #38bdf8; border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+.you-marker.search .ym-dot { background: #f472b6; }
+.ym-pulse { position: absolute; inset: 0; border-radius: 50%; background: rgba(56,189,248,.45); animation: ym-pulse 2s ease-out infinite; }
+.you-marker.search .ym-pulse { background: rgba(244,114,182,.4); }
+@keyframes ym-pulse { from { transform: scale(1); opacity: .9; } to { transform: scale(3.4); opacity: 0; } }
+.ym-label { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; color: #0f172a; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+@media (prefers-reduced-motion: reduce) { .ym-pulse, .near-spin { animation: none; } }

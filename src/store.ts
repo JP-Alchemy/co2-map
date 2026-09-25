@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Feature, Point } from 'geojson';
 import type { Grade } from './game/grade';
+import { locate, type Here, type LocateError } from './model/near';
 import type { Place, StoreProps } from './types';
 
 export type StoreFeature = Feature<Point, StoreProps>;
@@ -45,6 +46,12 @@ interface AppState {
   useRoads: boolean;
   fx: Fx;
   passport: Passport;
+  /** the "near me" screen is (or was, on the way to the current store) part of the story */
+  nearby: boolean;
+  /** where the player is, once known; kept in memory only */
+  here: Here | null;
+  locating: boolean;
+  locateError: LocateError | null;
   setLens: (lens: Lens) => void;
   setLifecycle: (id: string | null) => void;
   /** back to the start screen of the current lens */
@@ -57,6 +64,14 @@ interface AppState {
   setView: (v: 'explore' | 'about') => void;
   setUseRoads: (b: boolean) => void;
   setFx: (fx: Partial<Fx>) => void;
+  /** Ask the browser where we are; with `open`, show the stores around it (the "near me" screen). */
+  findMe: (open?: boolean) => void;
+  /** a town or postcode the player typed instead */
+  setHere: (here: Here) => void;
+  /** back to the "near me" screen */
+  showNearby: () => void;
+  /** choose a store of any chain in one go */
+  shopAt: (store: StoreFeature) => void;
   /** Stamp a completed journey; returns which badges and product were new. */
   stamp: (productId: string, routeId: string, grade: Grade, badgeIds: string[]) => { newProduct: boolean; newBadges: string[] };
 }
@@ -73,10 +88,14 @@ export const useApp = create<AppState>((set, get) => ({
   useRoads: true,
   fx: loadFx(),
   passport: loadPassport(),
+  nearby: false,
+  here: null,
+  locating: false,
+  locateError: null,
   setLens: (lens) => set({ lens }),
   setLifecycle: (lifecycleId) => set({ lifecycleId, lens: 'product' }),
-  goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null }),
-  setChain: (chainId) => set({ chainId, store: null, productId: null, routeId: null }),
+  goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null, nearby: false }),
+  setChain: (chainId) => set({ chainId, store: null, productId: null, routeId: null, nearby: false }),
   setStore: (store) => set({ store, productId: null, routeId: null }),
   setProduct: (productId) => set({ productId, routeId: null }),
   setRoute: (routeId) => set({ routeId }),
@@ -88,6 +107,17 @@ export const useApp = create<AppState>((set, get) => ({
     try { localStorage.setItem(FX_KEY, JSON.stringify(next)); } catch { /* private mode */ }
     return { fx: next };
   }),
+  findMe: (open = true) => {
+    if (open) set({ nearby: true, lens: 'grocer', chainId: null, store: null, productId: null, routeId: null });
+    set({ locating: true, locateError: null });
+    locate().then(
+      (here) => set({ here, locating: false }),
+      (locateError: LocateError) => set({ locating: false, locateError }),
+    );
+  },
+  setHere: (here) => set({ here, locateError: null }),
+  showNearby: () => set({ nearby: true, lens: 'grocer', chainId: null, store: null, productId: null, routeId: null }),
+  shopAt: (store) => set({ chainId: store.properties.chain, store, productId: null, routeId: null }),
   stamp: (productId, routeId, grade, badgeIds) => {
     const prev = get().passport;
     const had = prev.products[productId];

@@ -51,6 +51,13 @@ export function About() {
           <li><b>Every line is a full modelled route</b>, from farm to a store near that distribution centre, using the same factors as the rest of the map, so the CO2e, distance and days per country and per grocer are comparable. Averages are weighted by volume.</li>
         </ul>
 
+        <h3>Near me</h3>
+        <p>
+          <b>Near me</b> asks your browser where you are (only when you press it, and only with your permission) and looks that point up in the store map already loaded in this page:
+          nothing is sent to a server or stored. You can type a town or postcode instead; that is matched against the stores' own addresses. Distances are in a straight line, and the walk, bike
+          and drive times are rough estimates from them. Stores are the five big Dutch chains only, so from abroad you see the nearest ones in the Netherlands.
+        </p>
+
         <h3>Grades, badges and the passport</h3>
         <p>
           Every product gets a CO2e grade from its farm-to-shelf total per kilogram, on fixed bands so an A means low-carbon in absolute terms, not just the best of its kind:{' '}

@@ -18,6 +18,11 @@ it earned, a lower-carbon origin to try instead, and a stamp in your passport (k
 can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
 switch it on; with reduced motion the journey opens on its final frame.
 
+**Near me** finds the stores you most likely shop at: with your permission the browser's location (or a town or
+postcode you type) is matched against the store map already in the page, nothing is sent anywhere, and you get the
+nearest store of each chain with its distance and a rough walk, bike or drive time, plus a few more close by, on
+the map and in a list. Pick one to go straight to its aisle. A chain's store list can also sort by distance.
+
 **Follow a product** turns it around: hover a product in the bar to sketch its whole network and frame it, then
 pick it to see its whole life for a month on one map. Supply lines run
 from every origin (coloured by transport mode) to where it is dispatched, then fan out to 23 grocers in six countries
@@ -75,6 +80,7 @@ src/model/compute.ts           turns a route + chain + store into stages with km
 src/model/geo.ts               great-circle and arc geometry, antimeridian handling
 src/model/routing.ts           optional real-road geometry for truck legs (public OSRM demo server)
 src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
+src/model/near.ts              near me: browser location, nearest store per chain, town/postcode lookup in the store data
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
 src/map/clouds.ts              WebGL clouds: a deck and high cirrus on elevated spheres, parallax, evolving shapes, shadows
 src/map/camera.ts              globe-aware framing and a scrubbable fly-to curve
