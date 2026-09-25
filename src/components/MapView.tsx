@@ -41,6 +41,8 @@ interface Props {
   dockOpen: boolean;
   /** the product lens: one product across all its markets */
   lifecycle: Lifecycle | null;
+  /** a product hovered in the product lens's bar: its whole network is sketched on the map */
+  lcPreview: Lifecycle | null;
   lcFocus: LcFocus;
   onLcFocus: (f: LcFocus) => void;
   onReady?: (map: MapLibreMap) => void;
@@ -61,7 +63,7 @@ function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
   return { top: 70, bottom, left: dock ? 430 : 40, right: 60 };
 }
 
-export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcFocus, onLcFocus, onReady }: Props) {
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcPreview, lcFocus, onLcFocus, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const clouds = useRef<CloudLayer | null>(null);
@@ -71,7 +73,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const overlay = useRef<LifecycleOverlay | null>(null);
   const onLcFocusRef = useRef(onLcFocus);
   useEffect(() => { onLcFocusRef.current = onLcFocus; }, [onLcFocus]);
-  const spin = useRef({ on: false, raf: 0 });
+  /** `hold` pauses the landing spin while a product is previewed, without cancelling it */
+  const spin = useRef({ on: false, hold: false, raf: 0 });
   const dockRef = useRef(dockOpen);
   useEffect(() => { dockRef.current = dockOpen; }, [dockOpen]);
   const chainId = useApp((s) => s.chainId);
@@ -79,8 +82,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const lens = useApp((s) => s.lens);
   const fxClouds = useApp((s) => s.fx.clouds);
   // the latest selection, for camera moves that run on a timer after the render that scheduled them
-  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle });
-  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle }; });
+  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle, lcFocus });
+  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle, lcFocus }; });
   const previewTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
@@ -161,6 +164,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
           step = s;
           if (m.getLayer('legs-dash') && m.getLayoutProperty('legs-dash', 'visibility') !== 'none') m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]);
           if (m.getLayer('preview-dash')) m.setPaintProperty('preview-dash', 'line-dasharray', seq[s]);
+          if (m.getLayer('lcp-dash')) m.setPaintProperty('lcp-dash', 'line-dasharray', seq[s]);
         }
         requestAnimationFrame(tick);
       };
@@ -220,7 +224,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     let last = performance.now();
     const turn = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      if (sp.on && !m.isMoving()) {
+      if (sp.on && !sp.hold && !m.isMoving()) {
         const c = m.getCenter();
         m.jumpTo({ center: [c.lng + (dt * 360_000) / SPIN_MS, c.lat] });
       }
@@ -348,9 +352,35 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     }
   }, [preview]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- product lens bar hover: sketch the product's whole network and frame it, then go back to what was on show
+  useEffect(() => {
+    const m = map.current; if (!m || !ready.current) return;
+    window.clearTimeout(previewTimer.current);
+    overlay.current?.preview(lcPreview);
+    if (lcPreview) {
+      spin.current.hold = true;
+      previewTimer.current = window.setTimeout(() => {
+        const pad = hudPad(m, dockRef.current, PREVIEW_BOTTOM);
+        if (m.getContainer().clientWidth >= 820) pad.right = PREVIEW_RIGHT;
+        fitTo(m, lifecycleCoords(lcPreview, null), pad, 9, 900, { essential: false });
+      }, PREVIEW_DELAY_MS);
+    } else if (latest.current.lens === 'product') {
+      previewTimer.current = window.setTimeout(() => {
+        const now = latest.current;
+        spin.current.hold = false;
+        if (now.journeyActive || now.lens !== 'product') return;
+        if (now.lifecycle) fitTo(m, lifecycleCoords(now.lifecycle, now.lcFocus), hudPad(m, dockRef.current, 150), 9, 900);
+        else flyToGlobe(m);
+      }, PREVIEW_RETURN_MS);
+    }
+  }, [lcPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- product lens: draw the lifecycle and frame it, or go back to the globe / the supermarket story
   useEffect(() => {
     const m = map.current; if (!m) return;
+    // a pick from the bar replaces the pending "back to where you were" of the preview it ends
+    window.clearTimeout(previewTimer.current);
+    spin.current.hold = false;
     const apply = () => {
       overlay.current?.show(lifecycle);
       overlay.current?.setFocus(null);

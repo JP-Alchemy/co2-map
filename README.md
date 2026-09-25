@@ -18,7 +18,8 @@ it earned, a lower-carbon origin to try instead, and a stamp in your passport (k
 can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
 switch it on; with reduced motion the journey opens on its final frame.
 
-**Follow a product** turns it around: pick a product and see its whole life for a month on one map. Supply lines run
+**Follow a product** turns it around: hover a product in the bar to sketch its whole network and frame it, then
+pick it to see its whole life for a month on one map. Supply lines run
 from every origin (coloured by transport mode) to where it is dispatched, then fan out to 23 grocers in six countries
 (the Netherlands, Germany, Belgium, the UK, France and Sweden), as wide as their share of the volume, with particles
 flowing along all of them. A panel breaks it down by origin, country and grocer, with volume-weighted CO2e, distance

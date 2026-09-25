@@ -639,3 +639,11 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
 .lc-view { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; margin-bottom: 8px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
 .lc-view button { border: 0; border-radius: 9px; padding: 6px 8px; background: none; font-size: 12.5px; font-weight: 700; color: #cbd5e1; }
 .lc-view button.on { background: #fff; color: #0f172a; }
+/* while a product is previewed on the start screen, the title and the lens switch step out of its way */
+.title-card, .lens-toggle { transition: opacity .3s ease; animation-fill-mode: backwards; }
+.previewing .title-card, .previewing .lens-toggle { opacity: 0; pointer-events: none; }
+.lc-tip { max-width: 340px; }
+.lc-tip-to { display: flex; flex-wrap: wrap; gap: 2px 8px; }
+.lc-tip-to i { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lc-badge-pin.preview { pointer-events: none; }
+.lc-badge-pin.preview .lc-badge { padding: 3px 8px 3px 3px; gap: 4px; }

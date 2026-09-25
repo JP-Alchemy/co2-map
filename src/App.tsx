@@ -3,7 +3,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { CHAIN_BY_ID, PRODUCT_BY_ID } from './data';
 import { pickRoute, type ComputedRoute } from './model/compute';
-import { buildLifecycle, type Flow, type LcFocus } from './model/lifecycle';
+import { buildLifecycle, type Flow, type LcFocus, type Lifecycle } from './model/lifecycle';
 import { useComputedRoute } from './model/useRoute';
 import { storePlaceOf, useApp } from './store';
 import type { StoreProps } from './types';
@@ -27,6 +27,7 @@ export default function App() {
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [journey, setJourney] = useState<{ key: string | null; run: number; open: boolean; seek: { index: number; n: number } | null }>({ key: null, run: 0, open: false, seek: null });
   const [preview, setPreview] = useState<ComputedRoute | null>(null);
+  const [lcPreview, setLcPreview] = useState<Lifecycle | null>(null);
   const [dockOpen, setDockOpen] = useState(true);
   const [lcFocus, setLcFocus] = useState<LcFocus>(null);
   const [lcJourney, setLcJourney] = useState<{ flow: Flow; run: number } | null>(null);
@@ -89,15 +90,19 @@ export default function App() {
     : (!chain ? 'landing' : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore');
   // each new screen opens the dock again; a hover preview never outlives the hotbar
   const [lastMode, setLastMode] = useState(mode);
-  if (mode !== lastMode) { setLastMode(mode); setDockOpen(true); if (mode !== 'store' && mode !== 'explore') setPreview(null); }
+  if (mode !== lastMode) {
+    setLastMode(mode); setDockOpen(true);
+    if (mode !== 'store' && mode !== 'explore') setPreview(null);
+    if (lens !== 'product' || mode === 'journey') setLcPreview(null);
+  }
   const dockVisible = mode === 'chain' || mode === 'store' || mode === 'explore' || mode === 'lifecycle';
   const anyJourney = journeyActive || lcJourneyActive;
 
   return (
-    <div className={`app mode-${mode} lens-${lens}`}>
+    <div className={`app mode-${mode} lens-${lens} ${lcPreview ? 'previewing' : ''}`}>
       <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${anyJourney ? 'journey-on' : ''}`}>
         <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={anyJourney}
-          preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcFocus={lcFocus} onLcFocus={setLcFocus} onReady={setMap} />
+          preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcPreview={lcPreview} lcFocus={lcFocus} onLcFocus={setLcFocus} onReady={setMap} />
         <div className="map-fx" aria-hidden="true" />
 
         <QuestTrail />
@@ -118,7 +123,7 @@ export default function App() {
         )}
 
         {lens === 'grocer' && chain && store && (mode === 'store' || mode === 'explore') && <Hotbar chain={chain} store={store} currentId={productId} onPreview={setPreview} />}
-        {lens === 'product' && mode !== 'journey' && <ProductBar />}
+        {lens === 'product' && mode !== 'journey' && <ProductBar onPreview={setLcPreview} />}
 
         {journeyActive && map && computed && (
           <JourneyPlayer key={`g${journey.run}`} map={map} computed={computed} seek={journey.seek}
