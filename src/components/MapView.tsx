@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, Popup, type GeoJSONSource, type MapLayerMouseEvent } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import '../map/worker';
 import type { FeatureCollection, Point, Position } from 'geojson';
 import { CHAINS, CHAIN_BY_ID, MODES } from '../data';
 import { fitCam, type Pad } from '../map/camera';
