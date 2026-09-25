@@ -14,6 +14,10 @@ const NL_BOUNDS: [number, number, number, number] = [3.2, 50.7, 7.3, 53.6];
 /** Where the globe looks on the landing view: the Atlantic, with Europe, Africa and the Americas in sight. */
 const GLOBE_CENTER: [number, number] = [-12, 28];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
+/** Landing view: a globe with Europe and the Atlantic in view */
+const GLOBE_VIEW = { center: [-10, 32] as [number, number], zoom: 1.8 };
+/** One full rotation of the idle globe takes this long */
+const SPIN_MS = 90_000;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
 const ROUTE_LAYERS = ['legs-casing', 'legs', 'legs-dash', 'legs-active', 'nodes', 'nodes-label'];
@@ -52,6 +56,25 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     m.addControl(new AttributionControl({ compact: true, customAttribution: 'Stores © OpenStreetMap contributors' }), 'bottom-right');
     map.current = m;
+    if (import.meta.env.DEV) Object.assign(window, { __map: m, __spin: spin });
+
+    // Idle spin: linear easeTo in 45° steps (the globe projection normalises a +360° target to a no-op),
+    // chained from moveend while spinning is on.
+    const SPIN_STEP = 45;
+    const spinOnce = () => {
+      if (!spin.current) return;
+      const c = m.getCenter();
+      m.easeTo({ center: [c.lng + SPIN_STEP, c.lat], duration: (SPIN_MS * SPIN_STEP) / 360, easing: (t) => t, essential: true });
+    };
+    startSpin.current = () => { if (spin.current) return; spin.current = true; spinOnce(); };
+    stopSpin.current = () => { if (!spin.current) return; spin.current = false; m.stop(); };
+    m.on('moveend', () => { if (spin.current) spinOnce(); });
+    for (const ev of ['mousedown', 'touchstart', 'wheel'] as const) m.on(ev, () => stopSpin.current());
+
+    m.on('style.load', () => {
+      m.setProjection({ type: 'globe' });
+      m.setSky({ 'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0] } as never);
+    });
 
     m.on('load', () => {
       const cl = new CloudLayer();
