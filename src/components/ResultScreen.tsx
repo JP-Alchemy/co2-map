@@ -14,14 +14,16 @@ interface Props {
   onExplore: () => void;
   onPickAnother: () => void;
   /** play the same product from another origin: route id and a month when it is in season */
-  onSwap: (routeId: string, month: number) => void;
+  onSwap?: (routeId: string, month: number) => void;
+  /** see the product across all its markets */
+  onLifecycle?: () => void;
 }
 
 /**
  * The end of a journey, scored like a level: a CO2e grade, the badges it earned, a lower-carbon origin
  * to try next, and a stamp in the player's passport.
  */
-export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap }: Props) {
+export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, onLifecycle }: Props) {
   const kg = c.product.pack.kg;
   const grade = gradeOf(c.co2e.total);
   const badges = useMemo(() => badgesFor(c), [c]);
@@ -101,7 +103,7 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap }: 
             <div className="rs-label">💡 Swap to save</div>
             <p><Flag country={swap.c.route.origin.country} /> <b>{swap.c.route.label}</b> ({seasonOf(swap.c)}) saves about <b>{Math.round((swap.saving / c.co2e.total) * 100)}%</b>: {swap.saving.toFixed(2)} kg CO<sub>2</sub>e per kilo, grade {gradeOf(swap.c.co2e.total).grade}.</p>
           </div>
-          <button onClick={() => onSwap(swap.c.route.id, swap.c.route.season.from)}>Play it ▶</button>
+          {onSwap && <button onClick={() => onSwap(swap.c.route.id, swap.c.route.season.from)}>Play it ▶</button>}
         </div>
       ) : c.product.routes.length > 1 ? (
         <div className="rs-swap best"><div><div className="rs-label">🏆 Best choice</div><p>No other origin of {c.product.name.toLowerCase()} on this shelf has a clearly lower footprint.</p></div></div>
@@ -115,6 +117,12 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap }: 
           ))}
         </div>
       </div>
+
+      {onLifecycle && (
+        <button className="rs-lifecycle" onClick={onLifecycle}>
+          <span>🌍</span><span><b>Where else does it go?</b><small>{c.product.name}: every grocer and country it reaches</small></span><i>→</i>
+        </button>
+      )}
 
       <div className="rs-actions">
         <button onClick={onReplay}>↺ Replay</button>

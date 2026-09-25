@@ -1,6 +1,7 @@
 // Runs the model for every product × route × chain against one sample store per chain and prints a summary.
 import { CHAINS, PLACES, PRODUCTS, PRODUCERS } from '../src/data';
 import { computeRoute, fmtKg } from '../src/model/compute';
+import { buildLifecycle } from '../src/model/lifecycle';
 import type { Place } from '../src/types';
 
 const sampleStore: Place = { id: 'store_test', name: 'Test store, Utrecht', kind: 'store', country: 'NL', coords: [5.12, 52.09], confidence: 'verified' };
@@ -21,6 +22,17 @@ for (const p of PRODUCTS) {
       } catch (e) { console.error(`✗ ${p.id}/${r.id}/${chain.id}: ${(e as Error).message}`); errors++; }
     }
   }
+}
+// product lifecycles: every month's volume must add up to 100% and every flow must have finite numbers
+for (const p of PRODUCTS) {
+  for (let month = 1; month <= 12; month++) {
+    const lc = buildLifecycle(p, month);
+    const vol = lc.flows.reduce((s, f) => s + f.volume, 0);
+    if (Math.abs(vol - 1) > 1e-6) { console.error(`✗ lifecycle ${p.id}/${month}: volume adds up to ${vol}`); errors++; }
+    for (const f of lc.flows) if (![f.computed.co2e.total, f.computed.totalKm, f.volume].every(Number.isFinite)) { console.error(`✗ lifecycle ${p.id}/${month}: NaN in ${f.key}`); errors++; }
+  }
+  const lc = buildLifecycle(p, 9);
+  console.log(`${p.emoji} ${p.id.padEnd(10)} Sep: ${lc.origins.length} origin(s) → ${lc.total.grocers} grocers in ${lc.total.markets} countries, ${fmtKg(lc.total.co2)} kg CO2e/kg on average  ` + lc.markets.map((m) => `${m.market} ${Math.round(m.volume * 100)}%`).join(' '));
 }
 console.log(errors ? `\n${errors} errors` : '\nall routes OK');
 process.exit(errors ? 1 : 0);

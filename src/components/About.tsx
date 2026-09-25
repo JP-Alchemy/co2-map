@@ -38,6 +38,19 @@ export function About() {
         <h3>The journey animation</h3>
         <p>Choosing a product plays its journey on the globe. Time is compressed: each leg takes a few seconds, more for longer distances (on a logarithmic scale, so a 20 km truck hop and a 10,000 km crossing both stay watchable). The counters show the modelled values for one retail pack, adding each leg's distance, time, CO2e, fuel and freight cost as the vehicle moves, and each stop's storage, handling and margins when it is reached. The shelf price is only complete once the product reaches your store, where the retailer's margin and VAT are added. The clouds are decorative, not real weather.</p>
 
+        <h3>Following a product across Europe</h3>
+        <p>
+          The <b>Follow a product</b> view turns the story around: one product, all its origins that month, and every shelf it reaches. Produce that is grown in the
+          Netherlands, or lands there (Rotterdam, Vlissingen, Schiphol, the ripening centres), is partly sold at home and partly re-exported, mostly by lorry;
+          to Great Britain the trailer takes the Hook of Holland–Harwich or Calais–Dover ferry. Produce packed abroad (a Spanish packhouse, the kiwi terminal in
+          Zeebrugge) goes to each country directly. Six markets are shown: the Netherlands, Germany, Belgium, the United Kingdom, France and Sweden.
+        </p>
+        <ul>
+          <li><b>How much goes where</b> is an indicative model <ConfidenceBadge level="extrapolated" />: a re-export share and a split between countries per product, in line with the order of magnitude of Dutch trade statistics (CBS), then divided between each country's main grocers by their rounded national market share.</li>
+          <li><b>Grocers abroad</b> are real chains, drawn at one representative distribution location in their main region. That place is real, but it is not a confirmed supplier link for any product. The Netherlands shows its five chains, with their real distribution centres.</li>
+          <li><b>Every line is a full modelled route</b>, from farm to a store near that distribution centre, using the same factors as the rest of the map, so the CO2e, distance and days per country and per grocer are comparable. Averages are weighted by volume.</li>
+        </ul>
+
         <h3>Grades, badges and the passport</h3>
         <p>
           Every product gets a CO2e grade from its farm-to-shelf total per kilogram, on fixed bands so an A means low-carbon in absolute terms, not just the best of its kind:{' '}

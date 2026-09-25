@@ -3,6 +3,7 @@ import type { FeatureCollection, Point } from 'geojson';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { CHAIN_BY_ID, PRODUCT_BY_ID } from './data';
 import { pickRoute, type ComputedRoute } from './model/compute';
+import { buildLifecycle, type Flow, type LcFocus } from './model/lifecycle';
 import { useComputedRoute } from './model/useRoute';
 import { storePlaceOf, useApp } from './store';
 import type { StoreProps } from './types';
@@ -13,7 +14,9 @@ import { Dock } from './components/Dock';
 import { Hotbar } from './components/Hotbar';
 import { HudControls, QuestTrail } from './components/Hud';
 import { JourneyPlayer } from './components/JourneyPlayer';
+import { LifecyclePanel } from './components/LifecyclePanel';
 import { MapView } from './components/MapView';
+import { ProductBar } from './components/ProductBar';
 import { RoutePanel } from './components/RoutePanel';
 import { StoreCard } from './components/StoreCard';
 
@@ -25,7 +28,9 @@ export default function App() {
   const [journey, setJourney] = useState<{ key: string | null; run: number; open: boolean; seek: { index: number; n: number } | null }>({ key: null, run: 0, open: false, seek: null });
   const [preview, setPreview] = useState<ComputedRoute | null>(null);
   const [dockOpen, setDockOpen] = useState(true);
-  const { chainId, store, productId, routeId, month, view, useRoads, fx, setProduct, setRoute, setMonth } = useApp();
+  const [lcFocus, setLcFocus] = useState<LcFocus>(null);
+  const [lcJourney, setLcJourney] = useState<{ flow: Flow; run: number } | null>(null);
+  const { lens, lifecycleId, chainId, store, productId, routeId, month, view, useRoads, fx, setProduct, setRoute, setMonth, setLifecycle } = useApp();
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/stores.geojson`).then((r) => r.json()).then(setStores).catch(() => setStores({ type: 'FeatureCollection', features: [] }));
@@ -37,6 +42,7 @@ export default function App() {
     return c;
   }, [stores]);
 
+  // ---- the supermarket lens: one chain, one store, one product's journey
   const chain = chainId ? CHAIN_BY_ID[chainId] : null;
   const product = productId ? PRODUCT_BY_ID[productId] : null;
 
@@ -54,23 +60,44 @@ export default function App() {
   const closeJourney = useCallback(() => setJourney((j) => ({ ...j, open: false })), []);
   const pickAnother = useCallback(() => { setJourney((j) => ({ ...j, open: false })); setProduct(null); }, [setProduct]);
   const swapTo = useCallback((id: string, m: number) => { setMonth(m); setRoute(id); }, [setMonth, setRoute]);
-  const journeyActive = journey.open && !!computed && !!map;
+  const journeyActive = lens === 'grocer' && journey.open && !!computed && !!map;
   const focus = (index: number) => {
     if (journeyActive) setJourney((j) => ({ ...j, seek: { index, n: (j.seek?.n ?? 0) + 1 } }));
     else setFocusStep((f) => ({ index, n: (f?.n ?? 0) + 1 }));
   };
 
+  // ---- the product lens: one product across every market it reaches
+  const lcProduct = lifecycleId ? PRODUCT_BY_ID[lifecycleId] : null;
+  const lifecycle = useMemo(() => (lens === 'product' && lcProduct ? buildLifecycle(lcProduct, month) : null), [lens, lcProduct, month]);
+  const lcJourneyActive = lens === 'product' && !!lifecycle && !!lcJourney && !!map;
+  const followFlow = useCallback((flow: Flow) => setLcJourney((j) => ({ flow, run: (j?.run ?? 0) + 1 })), []);
+  const closeLcJourney = useCallback(() => setLcJourney(null), []);
+  const showLifecycle = useCallback((id: string) => setLifecycle(id), [setLifecycle]);
+
+  // switching lens or product starts that story fresh: no journey left running, no stale focus
+  const lensKey = `${lens}|${lens === 'product' ? lifecycleId : ''}`;
+  const [lastLensKey, setLastLensKey] = useState(lensKey);
+  if (lensKey !== lastLensKey) {
+    setLastLensKey(lensKey);
+    setLcFocus(null);
+    setLcJourney(null);
+    if (lens === 'product' && journey.open) setJourney((j) => ({ ...j, open: false }));
+  }
+
+  const mode = lens === 'product'
+    ? (!lifecycle ? 'landing' : lcJourneyActive ? 'journey' : 'lifecycle')
+    : (!chain ? 'landing' : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore');
   // each new screen opens the dock again; a hover preview never outlives the hotbar
-  const mode = !chain ? 'landing' : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore';
   const [lastMode, setLastMode] = useState(mode);
-  if (mode !== lastMode) { setLastMode(mode); setDockOpen(true); if (mode === 'journey' || mode === 'landing' || mode === 'chain') setPreview(null); }
-  const dockVisible = mode === 'chain' || mode === 'store' || mode === 'explore';
+  if (mode !== lastMode) { setLastMode(mode); setDockOpen(true); if (mode !== 'store' && mode !== 'explore') setPreview(null); }
+  const dockVisible = mode === 'chain' || mode === 'store' || mode === 'explore' || mode === 'lifecycle';
+  const anyJourney = journeyActive || lcJourneyActive;
 
   return (
-    <div className={`app mode-${mode}`}>
-      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${journeyActive ? 'journey-on' : ''}`}>
-        <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={journeyActive}
-          preview={preview} dockOpen={dockVisible && dockOpen} onReady={setMap} />
+    <div className={`app mode-${mode} lens-${lens}`}>
+      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${anyJourney ? 'journey-on' : ''}`}>
+        <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={anyJourney}
+          preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcFocus={lcFocus} onLcFocus={setLcFocus} onReady={setMap} />
         <div className="map-fx" aria-hidden="true" />
 
         <QuestTrail />
@@ -78,24 +105,31 @@ export default function App() {
 
         {mode === 'landing' && <ChainSelect counts={counts} />}
 
-        {chain && dockVisible && (
+        {dockVisible && (
           <Dock key={mode} open={dockOpen} onToggle={() => setDockOpen((o) => !o)}
-            title={mode === 'chain' ? <><span className="dock-swatch" style={{ background: chain.color, color: chain.textColor }}>{chain.name[0]}</span>{chain.name}</>
+            title={mode === 'lifecycle' && lifecycle ? <>🌍 {lifecycle.product.emoji} {lifecycle.product.name} across Europe</>
+              : mode === 'chain' && chain ? <><span className="dock-swatch" style={{ background: chain.color, color: chain.textColor }}>{chain.name[0]}</span>{chain.name}</>
               : mode === 'store' ? <>📍 Your store</> : <>{product?.emoji} {product?.name}</>}>
-            {mode === 'chain' && <ChainPanel chain={chain} stores={stores} />}
-            {mode === 'store' && store && <StoreCard chain={chain} store={store} />}
+            {mode === 'lifecycle' && lifecycle && <LifecyclePanel lc={lifecycle} focus={lcFocus} onFocus={setLcFocus} onFollow={followFlow} />}
+            {mode === 'chain' && chain && <ChainPanel chain={chain} stores={stores} />}
+            {mode === 'store' && chain && store && <StoreCard chain={chain} store={store} />}
             {mode === 'explore' && product && <RoutePanel product={product} route={route} computed={computed} activeStep={activeStep} liveStep={null} journeyActive={false} onPlay={playJourney} onHover={setActiveStep} onFocus={focus} />}
           </Dock>
         )}
 
-        {chain && store && (mode === 'store' || mode === 'explore') && <Hotbar chain={chain} store={store} currentId={productId} onPreview={setPreview} />}
+        {lens === 'grocer' && chain && store && (mode === 'store' || mode === 'explore') && <Hotbar chain={chain} store={store} currentId={productId} onPreview={setPreview} />}
+        {lens === 'product' && mode !== 'journey' && <ProductBar />}
 
         {journeyActive && map && computed && (
-          <JourneyPlayer key={journey.run} map={map} computed={computed} seek={journey.seek}
-            onClose={closeJourney} onPickAnother={pickAnother} onSwap={swapTo} />
+          <JourneyPlayer key={`g${journey.run}`} map={map} computed={computed} seek={journey.seek}
+            onClose={closeJourney} onPickAnother={pickAnother} onSwap={swapTo} onLifecycle={() => showLifecycle(computed.product.id)} />
+        )}
+        {lcJourneyActive && map && lcJourney && (
+          <JourneyPlayer key={`p${lcJourney.run}`} map={map} computed={lcJourney.flow.computed} seek={null}
+            onClose={closeLcJourney} onPickAnother={closeLcJourney} />
         )}
 
-        {!stores && <div className="toast top">Loading 3,000 store locations…</div>}
+        {!stores && lens === 'grocer' && <div className="toast top">Loading 3,000 store locations…</div>}
         {mode === 'chain' && <div className="toast">🛒 Click a store to shop there · clusters zoom in</div>}
       </main>
 

@@ -31,7 +31,9 @@ interface Props {
   /** leave the journey and go back to the aisle */
   onPickAnother: () => void;
   /** play the same product from another origin */
-  onSwap: (routeId: string, month: number) => void;
+  onSwap?: (routeId: string, month: number) => void;
+  /** see the product across all its markets */
+  onLifecycle?: () => void;
 }
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -69,7 +71,7 @@ interface VehicleRig {
 }
 interface Pin { seg: Segment; el: HTMLElement; marker: Marker; state: string; last: boolean }
 
-export function JourneyPlayer({ map, computed, seek, onStep, onClose, onPickAnother, onSwap }: Props) {
+export function JourneyPlayer({ map, computed, seek, onStep, onClose, onPickAnother, onSwap, onLifecycle }: Props) {
   // with reduced motion the journey opens on its final frame; play is one click away
   const [reduced] = useState(reducedMotion);
   const [size, setSize] = useState(() => ({ w: map.getContainer().clientWidth, h: map.getContainer().clientHeight }));
@@ -395,7 +397,7 @@ export function JourneyPlayer({ map, computed, seek, onStep, onClose, onPickAnot
     <div className={`jr-hud ${finished ? 'finished' : ''}`} ref={hudRef}>
       {!finished && <Caption c={computed} tl={tl} seg={seg} index={i} />}
       {!finished && <Ledger c={computed} tl={tl} tot={tot} seg={seg} p={p} index={i} onRow={registerRow} />}
-      {finished && <ResultScreen c={computed} onReplay={() => control.play(true)} onExplore={onClose} onPickAnother={onPickAnother} onSwap={onSwap} />}
+      {finished && <ResultScreen c={computed} onReplay={() => control.play(true)} onExplore={onClose} onPickAnother={onPickAnother} onSwap={onSwap} onLifecycle={onLifecycle} />}
       {!follow && <button className="jr-follow" onClick={control.follow}>🎥 Follow the journey</button>}
       <Scrubber c={computed} tl={tl} t={t} playing={playing} speed={speed}
         onPlay={() => control.play(!playing)} onSeek={control.seekTo} onSpeed={() => control.setSpeed(speed === 1 ? 2 : speed === 2 ? 4 : 1)}

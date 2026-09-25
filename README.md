@@ -18,6 +18,14 @@ it earned, a lower-carbon origin to try instead, and a stamp in your passport (k
 can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
 switch it on; with reduced motion the journey opens on its final frame.
 
+**Follow a product** turns it around: pick a product and see its whole life for a month on one map. Supply lines run
+from every origin (coloured by transport mode) to where it is dispatched, then fan out to 23 grocers in six countries
+(the Netherlands, Germany, Belgium, the UK, France and Sweden), as wide as their share of the volume, with particles
+flowing along all of them. A panel breaks it down by origin, country and grocer, with volume-weighted CO2e, distance
+and days; click a country or grocer to zoom to its distribution, play the year to watch origins change with the
+seasons, or follow any grocer's flow as a full journey. The export splits and the foreign grocers' locations are an
+indicative model, labelled as such in the app.
+
 ## Run it
 
 ```bash
@@ -55,10 +63,12 @@ src/data/places.ts             farms, packhouses, ports, importers, DCs; sea/air
 src/data/chains.ts             the five chains, their DCs and fresh-produce supply set-up
 src/data/producers.ts          who grows it
 src/data/products.ts           17 products, 31 seasonal supply routes
+src/data/markets.ts            six markets, their main grocers, and indicative export splits per product
 src/data/factors.ts            emission, speed, cost and storage factors, with sources
 src/model/compute.ts           turns a route + chain + store into stages with km, hours, CO2e and EUR
 src/model/geo.ts               great-circle and arc geometry, antimeridian handling
 src/model/routing.ts           optional real-road geometry for truck legs (public OSRM demo server)
+src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
 src/map/clouds.ts              WebGL cloud layer: noise-baked cloud texture on an elevated sphere, with shadows
 src/map/camera.ts              globe-aware framing and a scrubbable fly-to curve
@@ -69,6 +79,8 @@ src/components/JourneyPlayer.tsx  the journey animation: vehicle, trail, stop pi
 src/components/ResultScreen.tsx   grade, badges, swap-to-save tip and passport at the end of a journey
 src/components/Hud.tsx         trail of chips (where you are) and the settings in the corner
 src/components/Hotbar.tsx      the fresh aisle as an inventory bar, with route previews on hover
+src/components/LifecyclePanel.tsx  the product view's breakdown by origin, country and grocer
+src/map/lifecycleOverlay.ts    the product view on the map: supply and distribution lines, particles, badges
 src/components/                chain cards, dock panels (chain, store, route), about page
 ```
 

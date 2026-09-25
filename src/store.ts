@@ -29,7 +29,13 @@ function loadPassport(): Passport {
   try { return { products: {}, badges: {}, ...JSON.parse(localStorage.getItem(PASSPORT_KEY) || '{}') }; } catch { return { products: {}, badges: {} }; }
 }
 
+/** Follow one supermarket's supply chain to a store, or one product across all its markets. */
+export type Lens = 'grocer' | 'product';
+
 interface AppState {
+  lens: Lens;
+  /** product shown across Europe in the product lens */
+  lifecycleId: string | null;
   chainId: string | null;
   store: StoreFeature | null;
   productId: string | null;
@@ -39,6 +45,10 @@ interface AppState {
   useRoads: boolean;
   fx: Fx;
   passport: Passport;
+  setLens: (lens: Lens) => void;
+  setLifecycle: (id: string | null) => void;
+  /** back to the start screen of the current lens */
+  goHome: () => void;
   setChain: (id: string | null) => void;
   setStore: (f: StoreFeature | null) => void;
   setProduct: (id: string | null) => void;
@@ -52,6 +62,8 @@ interface AppState {
 }
 
 export const useApp = create<AppState>((set, get) => ({
+  lens: 'grocer',
+  lifecycleId: null,
   chainId: null,
   store: null,
   productId: null,
@@ -61,6 +73,9 @@ export const useApp = create<AppState>((set, get) => ({
   useRoads: true,
   fx: loadFx(),
   passport: loadPassport(),
+  setLens: (lens) => set({ lens }),
+  setLifecycle: (lifecycleId) => set({ lifecycleId, lens: 'product' }),
+  goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null }),
   setChain: (chainId) => set({ chainId, store: null, productId: null, routeId: null }),
   setStore: (store) => set({ store, productId: null, routeId: null }),
   setProduct: (productId) => set({ productId, routeId: null }),

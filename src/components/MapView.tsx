@@ -5,8 +5,10 @@ import type { FeatureCollection, Point, Position } from 'geojson';
 import { CHAINS, CHAIN_BY_ID, MODES } from '../data';
 import { fitCam, type Pad } from '../map/camera';
 import { CloudLayer } from '../map/clouds';
+import { LifecycleOverlay } from '../map/lifecycleOverlay';
 import { LANDING_PAD, landingZoom, SATELLITE_STYLE } from '../map/style';
 import type { ComputedRoute } from '../model/compute';
+import type { LcFocus, Lifecycle } from '../model/lifecycle';
 import { useApp, type StoreFeature } from '../store';
 import type { StoreProps } from '../types';
 
@@ -37,6 +39,10 @@ interface Props {
   preview: ComputedRoute | null;
   /** whether the left dock covers part of the map, so camera fits leave room for it */
   dockOpen: boolean;
+  /** the product lens: one product across all its markets */
+  lifecycle: Lifecycle | null;
+  lcFocus: LcFocus;
+  onLcFocus: (f: LcFocus) => void;
   onReady?: (map: MapLibreMap) => void;
 }
 
@@ -55,22 +61,26 @@ function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
   return { top: 70, bottom, left: dock ? 430 : 40, right: 60 };
 }
 
-export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, onReady }: Props) {
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcFocus, onLcFocus, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const clouds = useRef<CloudLayer | null>(null);
   const ready = useRef(false);
   const marker = useRef<Marker | null>(null);
   const previewPin = useRef<Marker | null>(null);
+  const overlay = useRef<LifecycleOverlay | null>(null);
+  const onLcFocusRef = useRef(onLcFocus);
+  useEffect(() => { onLcFocusRef.current = onLcFocus; }, [onLcFocus]);
   const spin = useRef({ on: false, raf: 0 });
   const dockRef = useRef(dockOpen);
   useEffect(() => { dockRef.current = dockOpen; }, [dockOpen]);
   const chainId = useApp((s) => s.chainId);
   const store = useApp((s) => s.store);
+  const lens = useApp((s) => s.lens);
   const fxClouds = useApp((s) => s.fx.clouds);
   // the latest selection, for camera moves that run on a timer after the render that scheduled them
-  const latest = useRef({ computed, journeyActive, store });
-  useEffect(() => { latest.current = { computed, journeyActive, store }; });
+  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle });
+  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle }; });
   const previewTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
@@ -137,6 +147,10 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       m.addLayer({ id: 'preview-dash', type: 'line', source: 'preview', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#fff', 'line-width': 1.6, 'line-opacity': 0.9, 'line-dasharray': [0, 4, 3] } });
 
+      const ov = new LifecycleOverlay(m);
+      ov.onFocus = (f) => onLcFocusRef.current(f);
+      overlay.current = ov;
+
       // animated dashes on route legs
       const seq = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
       let step = 0;
@@ -191,15 +205,16 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const sp = spin.current;
     const stopSpin = () => { sp.on = false; };
     m.on('mousedown', stopSpin); m.on('touchstart', stopSpin); m.on('wheel', stopSpin);
-    return () => { cancelAnimationFrame(sp.raf); m.remove(); map.current = null; ready.current = false; };
+    return () => { cancelAnimationFrame(sp.raf); overlay.current?.destroy(); overlay.current = null; m.remove(); map.current = null; ready.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- landing view: a slowly turning planet (the globe projection and atmosphere come from the style)
+  const landing = lens === 'product' ? !lifecycle : !chainId;
   useEffect(() => {
     const m = map.current; if (!m) return;
     const sp = spin.current;
     cancelAnimationFrame(sp.raf);
-    if (chainId) { sp.on = false; return; }
+    if (!landing) { sp.on = false; return; }
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     sp.on = !reduced;
     let last = performance.now();
@@ -213,7 +228,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     };
     sp.raf = requestAnimationFrame(turn);
     return () => cancelAnimationFrame(sp.raf);
-  }, [chainId]);
+  }, [landing]);
 
   // ---- stores + DCs by chain
   useEffect(() => {
@@ -234,10 +249,9 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   useEffect(() => {
     const m = map.current; if (!m) return;
     const apply = () => {
+      if (latest.current.lens === 'product') return;
       if (!chainId) {
-        setGlobe(m, true);
-        const c = m.getContainer();
-        m.flyTo({ center: GLOBE_CENTER, zoom: landingZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: LANDING_PAD, duration: 2400, essential: true });
+        flyToGlobe(m);
       } else if (!store) {
         setGlobe(m, true);
         m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2600, essential: true });
@@ -272,16 +286,17 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       const nodes = computed ? computed.steps.filter((s) => s.kind === 'node').map((s) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: s.coords }, properties: { index: s.index, label: s.place.name.split(',')[0], major: s.step.role === 'origin' || s.step.role === 'store' } })) : [];
       (m.getSource('legs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: legs });
       (m.getSource('nodes') as GeoJSONSource).setData({ type: 'FeatureCollection', features: nodes });
-      for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', journeyActive ? 'none' : 'visible');
+      const hide = journeyActive || lens === 'product';
+      for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible');
       // the journey and the store picker live on the globe; only a very wide route overview goes flat
       if (!computed || journeyActive) setGlobe(m, true);
-      marker.current?.getElement().classList.toggle('hidden', journeyActive);
-      if (computed && !journeyActive) {
+      marker.current?.getElement().classList.toggle('hidden', hide);
+      if (computed && !hide) {
         fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, 150), 12, 1200);
       }
     };
     if (ready.current) apply(); else m.once(READY, apply);
-  }, [computed, journeyActive]);
+  }, [computed, journeyActive, lens]);
 
   // ---- active step highlight (hover)
   useEffect(() => {
@@ -333,12 +348,56 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     }
   }, [preview]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- product lens: draw the lifecycle and frame it, or go back to the globe / the supermarket story
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const apply = () => {
+      overlay.current?.show(lifecycle);
+      overlay.current?.setFocus(null);
+      if (lifecycle) fitTo(m, lifecycleCoords(lifecycle, null), hudPad(m, dockRef.current, 150), 9, 1400);
+      else if (lens === 'product') flyToGlobe(m);
+      else restoreSupermarketView(m, latest.current, dockRef.current);
+    };
+    if (ready.current) apply(); else m.once(READY, apply);
+  }, [lifecycle, lens]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const m = map.current; if (!m || !ready.current || !lifecycle) return;
+    overlay.current?.setFocus(lcFocus);
+    fitTo(m, lifecycleCoords(lifecycle, lcFocus), hudPad(m, dockRef.current, 150), 9, 1000);
+  }, [lcFocus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { overlay.current?.setVisible(!journeyActive); }, [journeyActive]);
+
   // ---- clouds on/off
   useEffect(() => {
     if (clouds.current) { clouds.current.enabled = fxClouds; map.current?.triggerRepaint(); }
   }, [fxClouds]);
 
   return <div ref={el} className="map" />;
+}
+
+/** Back in the supermarket lens: return to wherever that story was. */
+function restoreSupermarketView(m: MapLibreMap, now: { chainId: string | null; store: StoreFeature | null; computed: ComputedRoute | null }, dock: boolean) {
+  if (!now.chainId) flyToGlobe(m);
+  else if (!now.store) m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dock, 60), pitch: 0, bearing: 0, duration: 1600, essential: true });
+  else if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dock, 150), 12, 1400);
+  else boardView(m, now.store, dock, 1400);
+}
+
+/** The start screen: the whole planet, turning. */
+function flyToGlobe(m: MapLibreMap) {
+  setGlobe(m, true);
+  const c = m.getContainer();
+  m.flyTo({ center: GLOBE_CENTER, zoom: landingZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: LANDING_PAD, duration: 2400, essential: true });
+}
+
+/** What to frame for a lifecycle: everything, one country's distribution, or one grocer's. */
+function lifecycleCoords(lc: Lifecycle, focus: LcFocus): Position[] {
+  const flows = !focus || focus.kind === 'europe' ? lc.flows : lc.flows.filter((f) => (focus.kind === 'market' ? f.grocer.market : f.grocer.id) === focus.id);
+  const out: Position[] = [];
+  for (const f of flows) out.push(...(focus ? f.outbound : [...f.inbound, ...f.outbound]));
+  return out.length ? out : lc.flows.flatMap((f) => f.inbound);
 }
 
 /** Every point along a route's legs. */
