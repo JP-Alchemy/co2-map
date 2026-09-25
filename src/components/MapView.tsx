@@ -40,6 +40,14 @@ interface Props {
   onReady?: (map: MapLibreMap) => void;
 }
 
+/** Room below a hovered product's route (the hotbar plus the tooltip above the tile) and to its right (the origin's label). */
+const PREVIEW_BOTTOM = 215;
+const PREVIEW_RIGHT = 200;
+/** Pause on a tile before the camera moves, so skimming along the aisle doesn't swing the map about. */
+const PREVIEW_DELAY_MS = 140;
+/** Pause after the pointer leaves the aisle before going back to the previous view. */
+const PREVIEW_RETURN_MS = 260;
+
 /** Room the HUD takes around the map: the dock on the left (a bottom sheet on phones) and the hotbar below. */
 function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
   const el = m.getContainer();
@@ -60,6 +68,11 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const chainId = useApp((s) => s.chainId);
   const store = useApp((s) => s.store);
   const fxClouds = useApp((s) => s.fx.clouds);
+  // the latest selection, for camera moves that run on a timer after the render that scheduled them
+  const latest = useRef({ computed, journeyActive, store });
+  useEffect(() => { latest.current = { computed, journeyActive, store }; });
+  const previewTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
   // ---- init
   useEffect(() => {
@@ -247,13 +260,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       body.append(emoji);
       elm.append(shock, body);
       marker.current = new Marker({ element: elm, anchor: 'bottom' }).setLngLat(store.geometry.coordinates as [number, number]).addTo(m);
-      if (!computed) {
-        // the board: Europe and the seas around it, so the routes of hovered products are in view
-        const [lng, lat] = store.geometry.coordinates;
-        const phone = m.getContainer().clientWidth < 820;
-        setGlobe(m, true);
-        m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dockRef.current, 150), duration: 2200, essential: true });
-      }
+      if (!computed) boardView(m, store, dockRef.current, 2200);
     }
   }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -270,9 +277,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       if (!computed || journeyActive) setGlobe(m, true);
       marker.current?.getElement().classList.toggle('hidden', journeyActive);
       if (computed && !journeyActive) {
-        const coords: Position[] = [];
-        for (const s of computed.steps) if (s.kind === 'leg') coords.push(...s.path);
-        fitTo(m, coords, hudPad(m, dockRef.current, 150), 12, 1200);
+        fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, 150), 12, 1200);
       }
     };
     if (ready.current) apply(); else m.once(READY, apply);
@@ -294,9 +299,26 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     }
   }, [focusStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- hotbar hover: sketch the product's route and mark where it grows
+  // ---- hotbar hover: sketch the product's route, mark where it grows, and frame it (local or across the world)
   useEffect(() => {
     const m = map.current; if (!m || !ready.current) return;
+    window.clearTimeout(previewTimer.current);
+    if (preview) {
+      previewTimer.current = window.setTimeout(() => {
+        const pad = hudPad(m, dockRef.current, PREVIEW_BOTTOM);
+        if (m.getContainer().clientWidth >= 820) pad.right = PREVIEW_RIGHT;
+        // routes too wide for one side of the globe (New Zealand) go flat here too, so the whole route fits
+        fitTo(m, routeCoords(preview), pad, 10, 900, { essential: false });
+      }, PREVIEW_DELAY_MS);
+    } else if (!journeyActive) {
+      // the pointer left the aisle: back to the route on show, or to the board around the store
+      previewTimer.current = window.setTimeout(() => {
+        const now = latest.current;
+        if (now.journeyActive) return;
+        if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dockRef.current, 150), 12, 900);
+        else if (now.store) boardView(m, now.store, dockRef.current, 1000);
+      }, PREVIEW_RETURN_MS);
+    }
     const legs = preview ? preview.steps.filter((s) => s.kind === 'leg').map((s) => ({ type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: s.path }, properties: { color: MODES[s.mode].color } })) : [];
     (m.getSource('preview') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: legs });
     previewPin.current?.remove(); previewPin.current = null;
@@ -309,7 +331,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       elm.append(ring, dot, label);
       previewPin.current = new Marker({ element: elm, anchor: 'center' }).setLngLat(origin.coords).addTo(m);
     }
-  }, [preview]);
+  }, [preview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- clouds on/off
   useEffect(() => {
@@ -319,13 +341,29 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   return <div ref={el} className="map" />;
 }
 
+/** Every point along a route's legs. */
+function routeCoords(c: ComputedRoute): Position[] {
+  const coords: Position[] = [];
+  for (const s of c.steps) if (s.kind === 'leg') coords.push(...s.path);
+  return coords;
+}
+
+/** The board: Europe and the seas around the store, so the routes of hovered products have room. */
+function boardView(m: MapLibreMap, store: StoreFeature, dock: boolean, duration: number) {
+  const [lng, lat] = store.geometry.coordinates;
+  const phone = m.getContainer().clientWidth < 820;
+  setGlobe(m, true);
+  m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dock, 150), duration, essential: true });
+}
+
 /**
  * Fit the view to a set of (possibly antimeridian-unwrapped) coordinates. MapLibre's fitBounds
  * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe, and does
  * not know the globe's curvature; fitCam handles both. A route wider than GLOBE_MAX_SPAN cannot be
- * seen on one hemisphere, so it is shown on the flat (mercator) map instead.
+ * seen on one hemisphere, so it is shown on the flat (mercator) map instead. Non-essential moves jump
+ * instead of animating for people who prefer reduced motion.
  */
-function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, duration: number) {
+function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, duration: number, { essential = true } = {}) {
   if (!coords.length) return;
   let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
   for (const [lon, lat] of coords) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
@@ -333,7 +371,7 @@ function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, du
   if (maxLon - minLon <= GLOBE_MAX_SPAN) {
     setGlobe(m, true);
     const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
-    m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential: true });
+    m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential });
     return;
   }
   setGlobe(m, false);
@@ -343,7 +381,7 @@ function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, du
   const dx = Math.max(1e-6, (maxLon - minLon) / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
   const zoom = Math.max(0.5, Math.min(maxZoom, Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy))));
   const center: [number, number] = [(minLon + maxLon) / 2, invMercY((mercY(minLat) + mercY(maxLat)) / 2)];
-  m.easeTo({ center, zoom, pitch: 0, bearing: 0, padding: pad, duration, essential: true });
+  m.easeTo({ center, zoom, pitch: 0, bearing: 0, padding: pad, duration, essential });
 }
 
 function setGlobe(m: MapLibreMap, globe: boolean) {
