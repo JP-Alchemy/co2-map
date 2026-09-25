@@ -92,3 +92,9 @@ export function globeZoom(w: number, h: number) {
   // globe radius in px ≈ 512·2^z / 2π at the equator
   return Math.max(0.6, Math.log2((Math.min(w, h) * 0.4) / (512 / (2 * Math.PI))));
 }
+
+/** The landing view leaves the top for the title and the bottom for the supermarket cards. */
+export const LANDING_PAD = { top: 170, bottom: 90, left: 0, right: 0 };
+export function landingZoom(w: number, h: number) {
+  return globeZoom(w, Math.max(240, h - LANDING_PAD.top - LANDING_PAD.bottom) / 0.86);
+}

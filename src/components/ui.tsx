@@ -43,3 +43,19 @@ export function Bar({ parts, total, unit }: { parts: { label: string; value: num
     </div>
   );
 }
+
+const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+/** A number whose digits roll like an odometer when it changes. */
+export function Odo({ value }: { value: string }) {
+  const chars = [...value];
+  return (
+    <span className="odo" role="text" aria-label={value}>
+      {chars.map((ch, i) => {
+        const k = chars.length - i; // keyed from the right, so digits keep rolling as the number grows
+        return /\d/.test(ch)
+          ? <span key={`d${k}`} className="odo-d" aria-hidden="true"><span style={{ transform: `translateY(${-Number(ch) * 10}%)` }}>{DIGITS.map((d) => <i key={d}>{d}</i>)}</span></span>
+          : <span key={`c${k}`} className="odo-c" aria-hidden="true">{ch}</span>;
+      })}
+    </span>
+  );
+}

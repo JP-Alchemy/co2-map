@@ -46,6 +46,7 @@ export function RoutePanel({ product, route, computed, activeStep, liveStep, jou
           <span><b>{journeyActive ? 'Replay the journey' : 'Play the journey'}</b><small>watch it travel from the farm to your store</small></span>
         </button>
       )}
+      <button className="lc-link" onClick={() => useApp.getState().setLifecycle(product.id)}>🌍 Where else does it go? <span>{product.name}: every grocer, every country →</span></button>
 
       <div className="month-row">
         <label>Shopping in</label>

@@ -174,6 +174,13 @@ export function inSeason(route: SupplyRoute, month: number): boolean {
   return from <= to ? month >= from && month <= to : month >= from || month <= to;
 }
 
+/** The route shown for a product in a month: the chosen one if it is in season, else the biggest in-season origin. */
+export function pickRoute(product: Product, month: number, routeId?: string | null): SupplyRoute {
+  const live = product.routes.filter((r) => inSeason(r, month));
+  const pool = live.length ? live : product.routes;
+  return pool.find((r) => r.id === routeId) ?? [...pool].sort((a, b) => b.share - a.share)[0];
+}
+
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function fmtKg(v: number) { return v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3); }

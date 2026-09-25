@@ -8,11 +8,23 @@ ripening rooms and distribution centres, and what each stage cost in kilometres,
 It is built as a teaching tool: the goal is to make an invisible history visible, with every claim labelled
 by how sure we are about it.
 
-The map is a satellite globe with a drifting cloud deck. Choosing a product plays its journey: the camera flies
-to the farm, a little truck, ship, plane, train or ferry travels each leg while its trail lights up, every stop
-pops up as it is reached, and a running ledger counts up distance, time, CO2e, fuel and money for one retail pack
-until the shelf price is complete. The journey can be paused, scrubbed, sped up, skipped or replayed (space,
-arrow keys and Esc work too), and with reduced motion it opens on its final frame.
+The whole app is a full-screen satellite globe with a drifting cloud deck, played like a small game: pick a
+supermarket from the cards over the turning planet, pick a store on the map, then pick a product from the hotbar
+of the fresh aisle (hover one to sketch its route and see its CO2e grade). Its journey then plays: the camera flies
+to the farm, a little truck, ship, plane, train or ferry travels each leg while its trail lights up (thicker for
+more carbon-heavy modes), every stop drops in, and numbers fly from the map into a running ledger of distance,
+time, CO2e, fuel and money for one retail pack. The journey ends on a result screen with an A–E grade, the badges
+it earned, a lower-carbon origin to try instead, and a stamp in your passport (kept in the browser). The journey
+can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
+switch it on; with reduced motion the journey opens on its final frame.
+
+**Follow a product** turns it around: pick a product and see its whole life for a month on one map. Supply lines run
+from every origin (coloured by transport mode) to where it is dispatched, then fan out to 23 grocers in six countries
+(the Netherlands, Germany, Belgium, the UK, France and Sweden), as wide as their share of the volume, with particles
+flowing along all of them. A panel breaks it down by origin, country and grocer, with volume-weighted CO2e, distance
+and days; click a country or grocer to zoom to its distribution, play the year to watch origins change with the
+seasons, or follow any grocer's flow as a full journey. The export splits and the foreign grocers' locations are an
+indicative model, labelled as such in the app.
 
 ## Run it
 
@@ -51,17 +63,25 @@ src/data/places.ts             farms, packhouses, ports, importers, DCs; sea/air
 src/data/chains.ts             the five chains, their DCs and fresh-produce supply set-up
 src/data/producers.ts          who grows it
 src/data/products.ts           17 products, 31 seasonal supply routes
+src/data/markets.ts            six markets, their main grocers, and indicative export splits per product
 src/data/factors.ts            emission, speed, cost and storage factors, with sources
 src/model/compute.ts           turns a route + chain + store into stages with km, hours, CO2e and EUR
 src/model/geo.ts               great-circle and arc geometry, antimeridian handling
 src/model/routing.ts           optional real-road geometry for truck legs (public OSRM demo server)
+src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
 src/map/clouds.ts              WebGL cloud layer: noise-baked cloud texture on an elevated sphere, with shadows
 src/map/camera.ts              globe-aware framing and a scrubbable fly-to curve
 src/journey/timeline.ts        turns a computed route into timed segments, camera poses and running totals
 src/journey/vehicles.ts        side-view SVG vehicles for each transport mode
-src/components/JourneyPlayer.tsx  the journey animation: vehicle, trail, stop pins, ledger, scrubber, finale
-src/components/                map, sidebar panels, directions-style route view, about page
+src/game/                      CO2e grade bands, badges, synthesised sound effects
+src/components/JourneyPlayer.tsx  the journey animation: vehicle, trail, stop pins, ledger, particles, scrubber
+src/components/ResultScreen.tsx   grade, badges, swap-to-save tip and passport at the end of a journey
+src/components/Hud.tsx         trail of chips (where you are) and the settings in the corner
+src/components/Hotbar.tsx      the fresh aisle as an inventory bar, with route previews on hover
+src/components/LifecyclePanel.tsx  the product view's breakdown by origin, country and grocer
+src/map/lifecycleOverlay.ts    the product view on the map: supply and distribution lines, particles, badges
+src/components/                chain cards, dock panels (chain, store, route), about page
 ```
 
 ## Updating the data
