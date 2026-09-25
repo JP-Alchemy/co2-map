@@ -7,6 +7,7 @@ export function ChainSelect({ counts }: { counts: Record<string, number> }) {
   const setChain = useApp((s) => s.setChain);
   const lens = useApp((s) => s.lens);
   const setLens = useApp((s) => s.setLens);
+  const findMe = useApp((s) => s.findMe);
   const pick = (l: 'grocer' | 'product') => { if (l !== lens) { sfx.select(); setLens(l); } };
   return (
     <>
@@ -30,8 +31,15 @@ export function ChainSelect({ counts }: { counts: Record<string, number> }) {
       {lens === 'grocer' && (
         <section className="chain-select" aria-label="Choose a supermarket">
           <div className="cs-row">
+            <button className="cs-card near" style={{ '--c': '#38bdf8' } as never}
+              onMouseEnter={() => sfx.hover()} onClick={() => { sfx.select(); findMe(true); }}>
+              <span className="cs-logo" aria-hidden="true">📍</span>
+              <span className="cs-name">Near me</span>
+              <span className="cs-stats">your <b>local</b> stores</span>
+              <span className="cs-go">Use my location →</span>
+            </button>
             {CHAINS.map((c, i) => (
-              <button key={c.id} className="cs-card" style={{ '--c': c.color, animationDelay: `${i * 70}ms` } as never}
+              <button key={c.id} className="cs-card" style={{ '--c': c.color, animationDelay: `${(i + 1) * 70}ms` } as never}
                 onMouseEnter={() => sfx.hover()} onClick={() => { sfx.select(); setChain(c.id); }}>
                 <span className="cs-logo" style={{ background: c.color, color: c.textColor }}>{c.name[0]}</span>
                 <span className="cs-name">{c.name}</span>

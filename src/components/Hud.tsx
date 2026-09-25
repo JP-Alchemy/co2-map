@@ -4,13 +4,13 @@ import { useApp } from '../store';
 
 /** Top left: where you are in the game, as a trail of chips you can click to go back. */
 export function QuestTrail() {
-  const { lens, lifecycleId, chainId, store, productId, setStore, setProduct, setLens, setLifecycle, goHome } = useApp();
+  const { lens, lifecycleId, chainId, store, productId, nearby, here, setStore, setProduct, setLens, setLifecycle, goHome, showNearby } = useApp();
   const chain = chainId ? CHAIN_BY_ID[chainId] : null;
   const product = productId ? PRODUCT_BY_ID[productId] : null;
   const lcProduct = lifecycleId ? PRODUCT_BY_ID[lifecycleId] : null;
   const back = (fn: () => void) => () => { sfx.select(); fn(); };
   const home = (
-    <button className={`trail-chip brand ${lens === 'grocer' ? (!chain ? 'cur' : '') : (!lcProduct ? 'cur' : '')}`} onClick={back(goHome)} title="Back to the start">
+    <button className={`trail-chip brand ${lens === 'grocer' ? (!chain && !nearby ? 'cur' : '') : (!lcProduct ? 'cur' : '')}`} onClick={back(goHome)} title="Back to the start">
       <span className="trail-icon">🌍</span><span className="trail-text">{lens === 'grocer' ? 'Where does my food come from?' : 'Where does my food go?'}</span>
     </button>
   );
@@ -34,6 +34,11 @@ export function QuestTrail() {
   return (
     <nav className="trail" aria-label="Where you are">
       {home}
+      {nearby && (
+        <button className={`trail-chip ${!chain ? 'cur' : ''}`} onClick={back(showNearby)} title="The supermarkets around you">
+          <span className="trail-icon">📍</span><span className="trail-text">Near {here?.source === 'search' ? here.label : 'you'}</span>
+        </button>
+      )}
       {chain && (
         <button className={`trail-chip ${!store ? 'cur' : ''}`} onClick={back(() => setStore(null))} style={{ '--c': chain.color } as never}>
           <span className="trail-swatch" style={{ background: chain.color, color: chain.textColor }}>{chain.name[0]}</span><span className="trail-text">{chain.name}</span>

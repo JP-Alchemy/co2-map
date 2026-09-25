@@ -9,6 +9,7 @@ import { LifecycleOverlay } from '../map/lifecycleOverlay';
 import { LANDING_PAD, landingZoom, SATELLITE_STYLE } from '../map/style';
 import type { ComputedRoute } from '../model/compute';
 import type { LcFocus, Lifecycle } from '../model/lifecycle';
+import { FAR_KM, fmtDistance, type Here, type Hit } from '../model/near';
 import { useApp, type StoreFeature } from '../store';
 import type { StoreProps } from '../types';
 
@@ -43,6 +44,8 @@ interface Props {
   lcPreview: Lifecycle | null;
   lcFocus: LcFocus;
   onLcFocus: (f: LcFocus) => void;
+  /** the "near me" screen: where the player is and the stores around them (a store row hovered in the panel is `focus`) */
+  near: { here: Here | null; hits: { perChain: Hit[]; more: Hit[] } | null; focus: string | null } | null;
   onReady?: (map: MapLibreMap) => void;
 }
 
@@ -63,13 +66,14 @@ function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
   return { top: 70, bottom, left: dock ? 430 : 40, right: 60 };
 }
 
-export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcPreview, lcFocus, onLcFocus, onReady }: Props) {
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcPreview, lcFocus, onLcFocus, near, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const clouds = useRef<CloudLayer | null>(null);
   const ready = useRef(false);
   const marker = useRef<Marker | null>(null);
   const previewPin = useRef<Marker | null>(null);
+  const youPin = useRef<Marker | null>(null);
   const overlay = useRef<LifecycleOverlay | null>(null);
   const onLcFocusRef = useRef(onLcFocus);
   useEffect(() => { onLcFocusRef.current = onLcFocus; }, [onLcFocus]);
@@ -82,8 +86,9 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const lens = useApp((s) => s.lens);
   const fxClouds = useApp((s) => s.fx.clouds);
   // the latest selection, for camera moves that run on a timer after the render that scheduled them
-  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle, lcFocus });
-  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle, lcFocus }; });
+  const nearHits = near?.hits ? [...near.hits.perChain, ...near.hits.more] : [];
+  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle, lcFocus, nearHits });
+  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle, lcFocus, nearHits }; });
   const previewTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
@@ -116,6 +121,17 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 11 }, paint: { 'text-color': '#fff' } });
       m.addLayer({ id: 'stores-pt', type: 'circle', source: 'stores', filter: ['!', ['has', 'point_count']],
         paint: { 'circle-color': chainColor as never, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' } });
+
+      // near me: the stores around the player, the nearest of each chain labelled with its distance
+      m.addSource('near', { type: 'geojson', data: EMPTY });
+      m.addLayer({ id: 'near-focus', type: 'circle', source: 'near', filter: ['==', ['get', 'osm'], ''],
+        paint: { 'circle-radius': 19, 'circle-color': 'rgba(255,255,255,0.12)', 'circle-stroke-width': 3, 'circle-stroke-color': ['get', 'color'] } });
+      m.addLayer({ id: 'near-pt', type: 'circle', source: 'near',
+        layout: { 'circle-sort-key': ['-', 100, ['get', 'rank']] },
+        paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['case', ['get', 'top'], 11, ['get', 'main'], 8.5, 6], 'circle-stroke-width': ['case', ['get', 'top'], 3.5, 2.5], 'circle-stroke-color': '#fff' } });
+      m.addLayer({ id: 'near-label', type: 'symbol', source: 'near', filter: ['get', 'main'],
+        layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.35], 'text-anchor': 'top', 'text-optional': true, 'symbol-sort-key': ['get', 'rank'] },
+        paint: { 'text-color': '#fff', 'text-halo-color': halo, 'text-halo-width': 1.6 } });
 
       m.addSource('dcs', { type: 'geojson', data: EMPTY });
       m.addLayer({ id: 'dcs-halo', type: 'circle', source: 'dcs', paint: { 'circle-color': '#fff', 'circle-radius': 14, 'circle-opacity': 0.9 } });
@@ -181,13 +197,18 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         const feat: StoreFeature = { type: 'Feature', id: f.id, geometry: { type: 'Point', coordinates: (f.geometry as Point).coordinates }, properties: f.properties as StoreProps };
         useApp.getState().setStore(feat);
       });
-      for (const id of ['clusters', 'stores-pt']) {
+      m.on('click', 'near-pt', (e: MapLayerMouseEvent) => {
+        const osm = e.features?.[0]?.properties?.osm;
+        const hit = latest.current.nearHits.find((h) => h.store.properties.osm === osm);
+        if (hit) useApp.getState().shopAt(hit.store);
+      });
+      for (const id of ['clusters', 'stores-pt', 'near-pt']) {
         m.on('mouseenter', id, () => { m.getCanvas().style.cursor = 'pointer'; });
         m.on('mouseleave', id, () => { m.getCanvas().style.cursor = ''; });
       }
       // a small card over the store under the pointer
       const card = new Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'hud-popup', maxWidth: '260px' });
-      m.on('mousemove', 'stores-pt', (e: MapLayerMouseEvent) => {
+      const showCard = (e: MapLayerMouseEvent) => {
         const f = e.features?.[0]; if (!f) return;
         const p = f.properties as StoreProps;
         const body = document.createElement('div');
@@ -196,8 +217,11 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         const cta = document.createElement('span'); cta.className = 'hp-cta'; cta.textContent = 'Click to shop here →';
         body.append(name, addr, cta);
         card.setLngLat((f.geometry as Point).coordinates as [number, number]).setDOMContent(body).addTo(m);
-      });
-      m.on('mouseleave', 'stores-pt', () => card.remove());
+      };
+      for (const id of ['stores-pt', 'near-pt']) {
+        m.on('mousemove', id, showCard);
+        m.on('mouseleave', id, () => card.remove());
+      }
       // on phones the attribution starts folded behind its (i) button
       if (m.getContainer().clientWidth < 820) m.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
       ready.current = true;
@@ -213,7 +237,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- landing view: a slowly turning planet (the globe projection and atmosphere come from the style)
-  const landing = lens === 'product' ? !lifecycle : !chainId;
+  const landing = lens === 'product' ? !lifecycle : !chainId && !near;
   useEffect(() => {
     const m = map.current; if (!m) return;
     const sp = spin.current;
@@ -255,7 +279,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const apply = () => {
       if (latest.current.lens === 'product') return;
       if (!chainId) {
-        flyToGlobe(m);
+        // the near-me screen frames itself
+        if (!useApp.getState().nearby) flyToGlobe(m);
       } else if (!store) {
         m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2600, essential: true });
       }
@@ -394,6 +419,50 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   }, [lcFocus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { overlay.current?.setVisible(!journeyActive); }, [journeyActive]);
+
+  // ---- near me: the player's dot, the stores around them, and a camera that frames both
+  const nearOn = !!near, here = near?.here ?? null, hits = near?.hits ?? null;
+  const wasNear = useRef(false);
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const apply = () => {
+      const feat = (h: Hit, rank: number, main: boolean) => {
+        const chain = CHAIN_BY_ID[h.store.properties.chain];
+        return { type: 'Feature' as const, geometry: h.store.geometry, properties: { osm: h.store.properties.osm, color: chain.color, main, top: main && rank === 0, rank, label: `${chain.name} · ${fmtDistance(h.km)}` } };
+      };
+      const feats = nearOn && hits ? [...hits.more.map((h, i) => feat(h, 10 + i, false)), ...hits.perChain.map((h, i) => feat(h, i, true))] : [];
+      (m.getSource('near') as GeoJSONSource).setData({ type: 'FeatureCollection', features: feats });
+
+      youPin.current?.remove(); youPin.current = null;
+      if (nearOn && here) {
+        const elm = document.createElement('div'); elm.className = `you-marker ${here.source}`;
+        const pulse = document.createElement('span'); pulse.className = 'ym-pulse';
+        const dot = document.createElement('span'); dot.className = 'ym-dot';
+        const label = document.createElement('span'); label.className = 'ym-label'; label.textContent = here.source === 'gps' ? 'You' : here.label;
+        elm.append(pulse, dot, label);
+        youPin.current = new Marker({ element: elm }).setLngLat(here.coords).addTo(m);
+      }
+
+      if (nearOn && here && hits) {
+        // the player and the nearest store of each chain; from abroad, just the stores
+        const farAway = (hits.perChain[0]?.km ?? 0) > FAR_KM;
+        const pts: Position[] = [...(farAway ? [] : [here.coords]), ...hits.perChain.map((h) => h.store.geometry.coordinates), ...hits.more.map((h) => h.store.geometry.coordinates)];
+        if (pts.length) fitTo(m, pts, hudPad(m, dockRef.current, 60), 15.5, 2200);
+      } else if (nearOn && !wasNear.current) {
+        // looking for the player: the Netherlands is the best guess
+        m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2200, essential: true });
+      } else if (!nearOn && wasNear.current && !latest.current.chainId && latest.current.lens === 'grocer') {
+        flyToGlobe(m);
+      }
+      wasNear.current = nearOn;
+    };
+    if (ready.current) apply(); else m.once(READY, apply);
+  }, [nearOn, here, hits]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const m = map.current; if (!m || !ready.current) return;
+    m.setFilter('near-focus', ['==', ['get', 'osm'], near?.focus ?? '']);
+  }, [near?.focus]);
 
   // ---- clouds on/off
   useEffect(() => {
