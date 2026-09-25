@@ -18,8 +18,6 @@ const GLOBE_CENTER: [number, number] = [-10, 32];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** One full rotation of the idle globe takes this long */
 const SPIN_MS = 90_000;
-/** Longitude span above which a route cannot be seen on one hemisphere, so the map falls back to the flat projection. */
-const GLOBE_MAX_SPAN = 140;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
 const ROUTE_LAYERS = ['legs-casing', 'legs', 'legs-dash', 'legs-active', 'nodes', 'nodes-label'];
@@ -257,7 +255,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       if (!chainId) {
         flyToGlobe(m);
       } else if (!store) {
-        setGlobe(m, true);
         m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2600, essential: true });
       }
     };
@@ -292,8 +289,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       (m.getSource('nodes') as GeoJSONSource).setData({ type: 'FeatureCollection', features: nodes });
       const hide = journeyActive || lens === 'product';
       for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible');
-      // the journey and the store picker live on the globe; only a very wide route overview goes flat
-      if (!computed || journeyActive) setGlobe(m, true);
       marker.current?.getElement().classList.toggle('hidden', hide);
       if (computed && !hide) {
         fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, 150), 12, 1200);
@@ -326,7 +321,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       previewTimer.current = window.setTimeout(() => {
         const pad = hudPad(m, dockRef.current, PREVIEW_BOTTOM);
         if (m.getContainer().clientWidth >= 820) pad.right = PREVIEW_RIGHT;
-        // routes too wide for one side of the globe (New Zealand) go flat here too, so the whole route fits
         fitTo(m, routeCoords(preview), pad, 10, 900, { essential: false });
       }, PREVIEW_DELAY_MS);
     } else if (!journeyActive) {
@@ -417,7 +411,6 @@ function restoreSupermarketView(m: MapLibreMap, now: { chainId: string | null; s
 
 /** The start screen: the whole planet, turning. */
 function flyToGlobe(m: MapLibreMap) {
-  setGlobe(m, true);
   const c = m.getContainer();
   m.flyTo({ center: GLOBE_CENTER, zoom: landingZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: LANDING_PAD, duration: 2400, essential: true });
 }
@@ -441,39 +434,19 @@ function routeCoords(c: ComputedRoute): Position[] {
 function boardView(m: MapLibreMap, store: StoreFeature, dock: boolean, duration: number) {
   const [lng, lat] = store.geometry.coordinates;
   const phone = m.getContainer().clientWidth < 820;
-  setGlobe(m, true);
   m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dock, 150), duration, essential: true });
 }
 
 /**
  * Fit the view to a set of (possibly antimeridian-unwrapped) coordinates. MapLibre's fitBounds
  * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe, and does
- * not know the globe's curvature; fitCam handles both. A route wider than GLOBE_MAX_SPAN cannot be
- * seen on one hemisphere, so it is shown on the flat (mercator) map instead. Non-essential moves jump
- * instead of animating for people who prefer reduced motion.
+ * not know the globe's curvature; fitCam handles both, and gives routes to the far side of the planet a
+ * best-effort fit on the globe. Non-essential moves jump instead of animating for people who prefer
+ * reduced motion.
  */
 function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, duration: number, { essential = true } = {}) {
   if (!coords.length) return;
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const [lon, lat] of coords) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
   const el = m.getContainer();
-  if (maxLon - minLon <= GLOBE_MAX_SPAN) {
-    setGlobe(m, true);
-    const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
-    m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential });
-    return;
-  }
-  setGlobe(m, false);
-  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
-  const invMercY = (y: number) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
-  const w = Math.max(50, el.clientWidth - pad.left - pad.right), h = Math.max(50, el.clientHeight - pad.top - pad.bottom);
-  const dx = Math.max(1e-6, (maxLon - minLon) / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
-  const zoom = Math.max(0.5, Math.min(maxZoom, Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy))));
-  const center: [number, number] = [(minLon + maxLon) / 2, invMercY((mercY(minLat) + mercY(maxLat)) / 2)];
-  m.easeTo({ center, zoom, pitch: 0, bearing: 0, padding: pad, duration, essential });
-}
-
-function setGlobe(m: MapLibreMap, globe: boolean) {
-  const cur = (m.getProjection()?.type ?? 'mercator') as string;
-  if ((cur === 'globe') !== globe) m.setProjection({ type: globe ? 'globe' : 'mercator' });
+  const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
+  m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential });
 }
