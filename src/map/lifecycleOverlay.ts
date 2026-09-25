@@ -7,7 +7,7 @@ import { haversineKm } from '../model/geo';
 import type { LcFocus, Lifecycle } from '../model/lifecycle';
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
-const SOURCES = ['lc-in', 'lc-out', 'lc-hubs', 'lc-dcs', 'lc-particles'];
+const SOURCES = ['lc-in', 'lc-out', 'lc-hubs', 'lc-dcs', 'lc-particles', 'lcp'];
 const LAYERS = ['lc-in-casing', 'lc-in', 'lc-out', 'lc-hubs', 'lc-dcs', 'lc-p-glow', 'lc-p'];
 /** Where each country's badge sits: near its grocers, spread out so the badges don't pile up on each other. */
 const BADGE_AT: Record<Market, [number, number]> = { NL: [5.9, 53.45], BE: [3.2, 50.3], DE: [10.3, 51.4], GB: [-2.7, 53.7], FR: [2.2, 47.3], SE: [15.4, 58.6] };
@@ -19,6 +19,23 @@ interface Particle { s: number; phase: number; f: Feature<Point, { color: string
 
 const pctOf = (v: number) => (v < 0.01 ? '<1%' : `${Math.round(v * 100)}%`);
 
+/** The supply lines (by mode, as wide as the origin's share) and distribution lines (by country, as wide as the flow) of a lifecycle. */
+function networkFeatures(lc: Lifecycle): Feature[] {
+  const feats: Feature[] = [];
+  for (const o of lc.origins) {
+    const cut = o.route.steps.length;
+    for (const s of o.computed.steps) {
+      if (s.kind !== 'leg' || s.index >= cut) continue;
+      feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: s.path }, properties: { color: MODES[s.mode].color, w: 2 + 7 * Math.sqrt(o.weight), part: 'in' } });
+    }
+  }
+  for (const f of lc.flows) {
+    if (f.outbound.length < 2) continue;
+    feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: f.outbound }, properties: { color: MARKET_BY_ID[f.grocer.market].color, w: 0.8 + 11 * Math.sqrt(f.volume), part: 'out', market: f.grocer.market, grocer: f.grocer.id } });
+  }
+  return feats;
+}
+
 /**
  * Draws a product's lifecycle on the map: supply lines from each origin to its dispatch point (coloured
  * by transport mode), distribution lines from there to every grocer (coloured by country, as wide as
@@ -26,6 +43,9 @@ const pctOf = (v: number) => (v < 0.01 ? '<1%' : `${Math.round(v * 100)}%`);
  */
 export class LifecycleOverlay {
   private markers: Marker[] = [];
+  /** a hovered product's network, sketched over (and instead of) the one on show */
+  private previewMarkers: Marker[] = [];
+  private previewing = false;
   private particles: Particle[] = [];
   private streams: Stream[] = [];
   private raf = 0;
@@ -45,6 +65,10 @@ export class LifecycleOverlay {
     m.addLayer({ id: 'lc-dcs', type: 'circle', source: 'lc-dcs', paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['get', 'r'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.6, 'circle-opacity': 1, 'circle-stroke-opacity': 1 } });
     m.addLayer({ id: 'lc-p-glow', type: 'circle', source: 'lc-particles', paint: { 'circle-color': ['get', 'color'], 'circle-radius': 6.5, 'circle-blur': 1, 'circle-opacity': 0.55 } });
     m.addLayer({ id: 'lc-p', type: 'circle', source: 'lc-particles', paint: { 'circle-color': '#fff', 'circle-radius': 2.1, 'circle-opacity': 0.95, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.2 } });
+    // the hover preview: the same network drawn lighter, with marching dashes (animated by the map view)
+    m.addLayer({ id: 'lcp-glow', type: 'line', source: 'lcp', layout: line, paint: { 'line-color': ['get', 'color'], 'line-width': ['+', ['*', ['get', 'w'], 1.6], 6], 'line-blur': 8, 'line-opacity': 0.45 } });
+    m.addLayer({ id: 'lcp-line', type: 'line', source: 'lcp', layout: line, paint: { 'line-color': ['get', 'color'], 'line-width': ['max', 1.6, ['*', ['get', 'w'], 0.7]], 'line-opacity': ['case', ['==', ['get', 'part'], 'in'], 0.95, 0.8] } });
+    m.addLayer({ id: 'lcp-dash', type: 'line', source: 'lcp', layout: line, paint: { 'line-color': '#fff', 'line-width': 1.4, 'line-opacity': 0.85, 'line-dasharray': [0, 4, 3] } });
 
     const hover = (e: MapLayerMouseEvent) => {
       const f = e.features?.[0]; if (!f) return;
@@ -72,31 +96,16 @@ export class LifecycleOverlay {
     this.popup.remove();
     const set = (id: string, fc: FeatureCollection) => (this.m.getSource(id) as GeoJSONSource | undefined)?.setData(fc);
     if (!lc) {
-      for (const s of SOURCES) set(s, EMPTY);
+      for (const s of SOURCES) if (s !== 'lcp') set(s, EMPTY);
       this.streams = []; this.particles = [];
       this.stop();
       return;
     }
 
-    // supply: each origin's legs up to the dispatch point, by mode
-    const inFeats: Feature[] = [];
-    for (const o of lc.origins) {
-      const cut = o.route.steps.length;
-      for (const s of o.computed.steps) {
-        if (s.kind !== 'leg' || s.index >= cut) continue;
-        inFeats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: s.path }, properties: { color: MODES[s.mode].color, w: 2 + 7 * Math.sqrt(o.weight) } });
-      }
-    }
-    set('lc-in', { type: 'FeatureCollection', features: inFeats });
-
-    // distribution: dispatch point → each grocer's distribution centre, by country
-    set('lc-out', {
-      type: 'FeatureCollection',
-      features: lc.flows.filter((f) => f.outbound.length > 1).map((f) => ({
-        type: 'Feature', geometry: { type: 'LineString', coordinates: f.outbound },
-        properties: { color: MARKET_BY_ID[f.grocer.market].color, w: 0.8 + 11 * Math.sqrt(f.volume), market: f.grocer.market, grocer: f.grocer.id },
-      })),
-    });
+    // supply: each origin's legs up to the dispatch point, by mode; distribution: on to each grocer, by country
+    const net = networkFeatures(lc);
+    set('lc-in', { type: 'FeatureCollection', features: net.filter((f) => f.properties!.part === 'in') });
+    set('lc-out', { type: 'FeatureCollection', features: net.filter((f) => f.properties!.part === 'out') });
 
     set('lc-hubs', {
       type: 'FeatureCollection',
@@ -155,6 +164,8 @@ export class LifecycleOverlay {
 
     this.compact();
 
+    this.applyVisibility();
+
     // particles: a stream per flow from its farm all the way to the grocer
     this.streams = lc.flows.map((f) => {
       const path = [...f.inbound, ...f.outbound.slice(1)];
@@ -195,12 +206,51 @@ export class LifecycleOverlay {
 
   setVisible(v: boolean) {
     this.visible = v;
+    this.applyVisibility();
+  }
+
+  /**
+   * Sketch a hovered product's whole network (or clear the sketch): supply and distribution lines,
+   * where it grows and which countries it reaches. The lifecycle on show steps aside meanwhile.
+   */
+  preview(lc: Lifecycle | null) {
+    for (const mk of this.previewMarkers) mk.remove();
+    this.previewMarkers = [];
+    (this.m.getSource('lcp') as GeoJSONSource | undefined)?.setData(lc ? { type: 'FeatureCollection', features: networkFeatures(lc) } : EMPTY);
+    this.previewing = !!lc;
+    this.applyVisibility();
+    if (!lc) return;
+    for (const o of lc.origins) {
+      const at = o.computed.steps[0].kind === 'node' ? o.computed.steps[0].coords : o.route.steps[0];
+      const el = document.createElement('div'); el.className = 'preview-pin';
+      const ring = document.createElement('span'); ring.className = 'pp-ring';
+      const dot = document.createElement('span'); dot.className = 'pp-dot'; dot.textContent = lc.product.emoji;
+      const label = document.createElement('span'); label.className = 'pp-label';
+      label.textContent = `${flagOf(o.route.origin.country)} ${o.route.origin.region}${lc.origins.length > 1 ? ` · ${pctOf(o.weight)}` : ''}`;
+      el.append(ring, dot, label);
+      this.previewMarkers.push(new Marker({ element: el, anchor: 'center' }).setLngLat(at as [number, number]).addTo(this.m));
+    }
+    for (const mk of lc.markets) {
+      const el = document.createElement('div'); el.className = 'lc-badge-pin preview';
+      const chip = document.createElement('span'); chip.className = 'lc-badge';
+      chip.style.setProperty('--c', MARKET_BY_ID[mk.market].color);
+      const flag = document.createElement('span'); flag.className = 'lc-b-flag'; flag.textContent = flagOf(mk.market);
+      const pct = document.createElement('b'); pct.textContent = pctOf(mk.volume);
+      chip.append(flag, pct);
+      el.append(chip);
+      this.previewMarkers.push(new Marker({ element: el, anchor: 'center' }).setLngLat(BADGE_AT[mk.market]).addTo(this.m));
+    }
+  }
+
+  destroy() { this.stop(); this.clearMarkers(); this.preview(null); this.popup.remove(); }
+
+  /** The lifecycle on show is drawn unless a journey is playing over it or another product is being previewed. */
+  private applyVisibility() {
+    const v = this.visible && !this.previewing;
     for (const id of LAYERS) if (this.m.getLayer(id)) this.m.setLayoutProperty(id, 'visibility', v ? 'visible' : 'none');
     for (const mk of this.markers) mk.getElement().style.display = v ? '' : 'none';
     if (v) this.start(); else this.stop();
   }
-
-  destroy() { this.stop(); this.clearMarkers(); this.popup.remove(); }
 
   private compact() {
     const small = this.m.getZoom() < 4;
@@ -209,7 +259,7 @@ export class LifecycleOverlay {
   private clearMarkers() { for (const mk of this.markers) mk.remove(); this.markers = []; }
   private stop() { cancelAnimationFrame(this.raf); this.raf = 0; }
   private start() {
-    if (this.raf || !this.visible || !this.particles.length) return;
+    if (this.raf || !this.visible || this.previewing || !this.particles.length) return;
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const src = this.m.getSource('lc-particles') as GeoJSONSource | undefined;
     const tick = (now: number) => {

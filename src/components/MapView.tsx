@@ -17,9 +17,7 @@ const NL_BOUNDS: [number, number, number, number] = [3.2, 50.7, 7.3, 53.6];
 const GLOBE_CENTER: [number, number] = [-10, 32];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** One full rotation of the idle globe takes this long */
-const SPIN_MS = 90_000;
-/** Longitude span above which a route cannot be seen on one hemisphere, so the map falls back to the flat projection. */
-const GLOBE_MAX_SPAN = 140;
+const SPIN_MS = 110_000;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
 const ROUTE_LAYERS = ['legs-casing', 'legs', 'legs-dash', 'legs-active', 'nodes', 'nodes-label'];
@@ -41,6 +39,8 @@ interface Props {
   dockOpen: boolean;
   /** the product lens: one product across all its markets */
   lifecycle: Lifecycle | null;
+  /** a product hovered in the product lens's bar: its whole network is sketched on the map */
+  lcPreview: Lifecycle | null;
   lcFocus: LcFocus;
   onLcFocus: (f: LcFocus) => void;
   onReady?: (map: MapLibreMap) => void;
@@ -61,7 +61,7 @@ function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
   return { top: 70, bottom, left: dock ? 430 : 40, right: 60 };
 }
 
-export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcFocus, onLcFocus, onReady }: Props) {
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, lifecycle, lcPreview, lcFocus, onLcFocus, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const clouds = useRef<CloudLayer | null>(null);
@@ -71,7 +71,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const overlay = useRef<LifecycleOverlay | null>(null);
   const onLcFocusRef = useRef(onLcFocus);
   useEffect(() => { onLcFocusRef.current = onLcFocus; }, [onLcFocus]);
-  const spin = useRef({ on: false, raf: 0 });
+  /** `hold` pauses the landing spin while a product is previewed, without cancelling it */
+  const spin = useRef({ on: false, hold: false, raf: 0 });
   const dockRef = useRef(dockOpen);
   useEffect(() => { dockRef.current = dockOpen; }, [dockOpen]);
   const chainId = useApp((s) => s.chainId);
@@ -79,8 +80,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   const lens = useApp((s) => s.lens);
   const fxClouds = useApp((s) => s.fx.clouds);
   // the latest selection, for camera moves that run on a timer after the render that scheduled them
-  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle });
-  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle }; });
+  const latest = useRef({ computed, journeyActive, store, chainId, lens, lifecycle, lcFocus });
+  useEffect(() => { latest.current = { computed, journeyActive, store, chainId, lens, lifecycle, lcFocus }; });
   const previewTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(previewTimer.current), []);
 
@@ -161,6 +162,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
           step = s;
           if (m.getLayer('legs-dash') && m.getLayoutProperty('legs-dash', 'visibility') !== 'none') m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]);
           if (m.getLayer('preview-dash')) m.setPaintProperty('preview-dash', 'line-dasharray', seq[s]);
+          if (m.getLayer('lcp-dash')) m.setPaintProperty('lcp-dash', 'line-dasharray', seq[s]);
         }
         requestAnimationFrame(tick);
       };
@@ -220,7 +222,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     let last = performance.now();
     const turn = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      if (sp.on && !m.isMoving()) {
+      if (sp.on && !sp.hold && !m.isMoving()) {
         const c = m.getCenter();
         m.jumpTo({ center: [c.lng + (dt * 360_000) / SPIN_MS, c.lat] });
       }
@@ -253,7 +255,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       if (!chainId) {
         flyToGlobe(m);
       } else if (!store) {
-        setGlobe(m, true);
         m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2600, essential: true });
       }
     };
@@ -288,8 +289,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       (m.getSource('nodes') as GeoJSONSource).setData({ type: 'FeatureCollection', features: nodes });
       const hide = journeyActive || lens === 'product';
       for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible');
-      // the journey and the store picker live on the globe; only a very wide route overview goes flat
-      if (!computed || journeyActive) setGlobe(m, true);
       marker.current?.getElement().classList.toggle('hidden', hide);
       if (computed && !hide) {
         fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, 150), 12, 1200);
@@ -322,7 +321,6 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       previewTimer.current = window.setTimeout(() => {
         const pad = hudPad(m, dockRef.current, PREVIEW_BOTTOM);
         if (m.getContainer().clientWidth >= 820) pad.right = PREVIEW_RIGHT;
-        // routes too wide for one side of the globe (New Zealand) go flat here too, so the whole route fits
         fitTo(m, routeCoords(preview), pad, 10, 900, { essential: false });
       }, PREVIEW_DELAY_MS);
     } else if (!journeyActive) {
@@ -348,9 +346,35 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     }
   }, [preview]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- product lens bar hover: sketch the product's whole network and frame it, then go back to what was on show
+  useEffect(() => {
+    const m = map.current; if (!m || !ready.current) return;
+    window.clearTimeout(previewTimer.current);
+    overlay.current?.preview(lcPreview);
+    if (lcPreview) {
+      spin.current.hold = true;
+      previewTimer.current = window.setTimeout(() => {
+        const pad = hudPad(m, dockRef.current, PREVIEW_BOTTOM);
+        if (m.getContainer().clientWidth >= 820) pad.right = PREVIEW_RIGHT;
+        fitTo(m, lifecycleCoords(lcPreview, null), pad, 9, 900, { essential: false });
+      }, PREVIEW_DELAY_MS);
+    } else if (latest.current.lens === 'product') {
+      previewTimer.current = window.setTimeout(() => {
+        const now = latest.current;
+        spin.current.hold = false;
+        if (now.journeyActive || now.lens !== 'product') return;
+        if (now.lifecycle) fitTo(m, lifecycleCoords(now.lifecycle, now.lcFocus), hudPad(m, dockRef.current, 150), 9, 900);
+        else flyToGlobe(m);
+      }, PREVIEW_RETURN_MS);
+    }
+  }, [lcPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- product lens: draw the lifecycle and frame it, or go back to the globe / the supermarket story
   useEffect(() => {
     const m = map.current; if (!m) return;
+    // a pick from the bar replaces the pending "back to where you were" of the preview it ends
+    window.clearTimeout(previewTimer.current);
+    spin.current.hold = false;
     const apply = () => {
       overlay.current?.show(lifecycle);
       overlay.current?.setFocus(null);
@@ -387,7 +411,6 @@ function restoreSupermarketView(m: MapLibreMap, now: { chainId: string | null; s
 
 /** The start screen: the whole planet, turning. */
 function flyToGlobe(m: MapLibreMap) {
-  setGlobe(m, true);
   const c = m.getContainer();
   m.flyTo({ center: GLOBE_CENTER, zoom: landingZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: LANDING_PAD, duration: 2400, essential: true });
 }
@@ -411,39 +434,19 @@ function routeCoords(c: ComputedRoute): Position[] {
 function boardView(m: MapLibreMap, store: StoreFeature, dock: boolean, duration: number) {
   const [lng, lat] = store.geometry.coordinates;
   const phone = m.getContainer().clientWidth < 820;
-  setGlobe(m, true);
   m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dock, 150), duration, essential: true });
 }
 
 /**
  * Fit the view to a set of (possibly antimeridian-unwrapped) coordinates. MapLibre's fitBounds
  * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe, and does
- * not know the globe's curvature; fitCam handles both. A route wider than GLOBE_MAX_SPAN cannot be
- * seen on one hemisphere, so it is shown on the flat (mercator) map instead. Non-essential moves jump
- * instead of animating for people who prefer reduced motion.
+ * not know the globe's curvature; fitCam handles both, and gives routes to the far side of the planet a
+ * best-effort fit on the globe. Non-essential moves jump instead of animating for people who prefer
+ * reduced motion.
  */
 function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, duration: number, { essential = true } = {}) {
   if (!coords.length) return;
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const [lon, lat] of coords) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
   const el = m.getContainer();
-  if (maxLon - minLon <= GLOBE_MAX_SPAN) {
-    setGlobe(m, true);
-    const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
-    m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential });
-    return;
-  }
-  setGlobe(m, false);
-  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
-  const invMercY = (y: number) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
-  const w = Math.max(50, el.clientWidth - pad.left - pad.right), h = Math.max(50, el.clientHeight - pad.top - pad.bottom);
-  const dx = Math.max(1e-6, (maxLon - minLon) / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
-  const zoom = Math.max(0.5, Math.min(maxZoom, Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy))));
-  const center: [number, number] = [(minLon + maxLon) / 2, invMercY((mercY(minLat) + mercY(maxLat)) / 2)];
-  m.easeTo({ center, zoom, pitch: 0, bearing: 0, padding: pad, duration, essential });
-}
-
-function setGlobe(m: MapLibreMap, globe: boolean) {
-  const cur = (m.getProjection()?.type ?? 'mercator') as string;
-  if ((cur === 'globe') !== globe) m.setProjection({ type: globe ? 'globe' : 'mercator' });
+  const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
+  m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration, essential });
 }

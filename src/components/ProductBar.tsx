@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { PRODUCTS } from '../data';
+import { MARKET_BY_ID } from '../data/markets';
 import { gradeOf } from '../game/grade';
 import { sfx } from '../game/sound';
-import { MONTHS } from '../model/compute';
-import { buildLifecycle } from '../model/lifecycle';
+import { fmtKg, MONTHS } from '../model/compute';
+import { buildLifecycle, type Lifecycle } from '../model/lifecycle';
 import { useApp } from '../store';
 import { Flag } from './ui';
 
@@ -31,15 +32,43 @@ function useSummaries(month: number) {
 
 const CATS: [string, string][] = [['fruit', 'Fruit'], ['vegetable', 'Veg'], ['dairy', 'Dairy'], ['eggs', 'Eggs'], ['meat', 'Meat'], ['fish', 'Fish']];
 
-/** The product lens's aisle: pick a product to see its whole journey across Europe. */
-export function ProductBar() {
+const pct = (v: number) => (v < 0.01 ? '<1%' : `${Math.round(v * 100)}%`);
+
+/** The product lens's aisle: pick a product to see its whole journey across Europe, hover one to sketch it. */
+export function ProductBar({ onPreview }: { onPreview: (lc: Lifecycle | null) => void }) {
   const month = useApp((s) => s.month);
   const setMonth = useApp((s) => s.setMonth);
   const current = useApp((s) => s.lifecycleId);
   const setLifecycle = useApp((s) => s.setLifecycle);
   const items = useSummaries(month);
+  const [hover, setHover] = useState<{ lc: Lifecycle; x: number } | null>(null);
+
+  const enter = (id: string, target: HTMLElement) => {
+    const p = PRODUCTS.find((x) => x.id === id)!;
+    const lc = buildLifecycle(p, month);
+    const bar = target.closest('.hotbar')!.getBoundingClientRect(), r = target.getBoundingClientRect();
+    // keep the tooltip over the bar even for the first and last tiles
+    setHover({ lc, x: Math.max(170, Math.min(bar.width - 170, r.left + r.width / 2 - bar.left)) });
+    onPreview(lc);
+    sfx.hover();
+  };
+  const leave = () => { setHover(null); onPreview(null); };
+  const tip = hover?.lc;
+  const tipGrade = tip ? gradeOf(tip.total.co2) : null;
+
   return (
-    <section className="hotbar" aria-label="Products">
+    <section className="hotbar" aria-label="Products" onMouseLeave={leave}>
+      {tip && tipGrade && (
+        <div className="hb-tip lc-tip" style={{ left: hover!.x }}>
+          <b>{tip.product.emoji} {tip.product.name} in {MONTHS[tip.month - 1]}</b>
+          {tip.origins.map((o) => <span key={o.route.id}><Flag country={o.route.origin.country} /> {o.route.origin.region}{tip.origins.length > 1 && <> · {pct(o.weight)}</>}</span>)}
+          <span className="lc-tip-to">→ {tip.markets.slice(0, 4).map((m) => <i key={m.market} style={{ color: MARKET_BY_ID[m.market].color }}><Flag country={m.market} /> {pct(m.volume)}</i>)}{tip.markets.length > 4 && <i>+{tip.markets.length - 4}</i>}</span>
+          <span className="hb-tip-row">
+            <span>{tip.total.grocers} grocers · {fmtKg(tip.total.co2)} kg CO₂e/kg on average</span>
+            <em className="grade-chip" style={{ background: tipGrade.color, color: tipGrade.ink }}>{tipGrade.grade}</em>
+          </span>
+        </div>
+      )}
       <div className="hb-side">
         <label className="hb-month" title="Origins change with the season">
           <span>🗓</span>
@@ -60,8 +89,9 @@ export function ProductBar() {
                 const it = items[p.id];
                 const g = it ? gradeOf(it.co2) : null;
                 return (
-                  <button key={p.id} className={`hb-tile ${p.id === current ? 'cur' : ''}`} onMouseEnter={() => sfx.hover()}
-                    onClick={() => { sfx.select(); setLifecycle(p.id); }}
+                  <button key={p.id} className={`hb-tile ${p.id === current ? 'cur' : ''}`}
+                    onMouseEnter={(e) => enter(p.id, e.currentTarget)} onFocus={(e) => enter(p.id, e.currentTarget)} onBlur={leave}
+                    onClick={() => { sfx.select(); leave(); setLifecycle(p.id); }}
                     aria-label={`${p.name}${g ? `, average CO2e grade ${g.grade}, sold in ${it!.markets} countries` : ''}`}>
                     <span className="hb-emoji">{p.emoji}</span>
                     <span className="hb-name">{p.name}</span>

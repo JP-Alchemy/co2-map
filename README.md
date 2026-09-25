@@ -8,7 +8,7 @@ ripening rooms and distribution centres, and what each stage cost in kilometres,
 It is built as a teaching tool: the goal is to make an invisible history visible, with every claim labelled
 by how sure we are about it.
 
-The whole app is a full-screen satellite globe with a drifting cloud deck, played like a small game: pick a
+The whole app is a full-screen satellite globe under layered, ever-changing clouds, played like a small game: pick a
 supermarket from the cards over the turning planet, pick a store on the map, then pick a product from the hotbar
 of the fresh aisle (hover one to sketch its route and see its CO2e grade). Its journey then plays: the camera flies
 to the farm, a little truck, ship, plane, train or ferry travels each leg while its trail lights up (thicker for
@@ -18,7 +18,8 @@ it earned, a lower-carbon origin to try instead, and a stamp in your passport (k
 can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
 switch it on; with reduced motion the journey opens on its final frame.
 
-**Follow a product** turns it around: pick a product and see its whole life for a month on one map. Supply lines run
+**Follow a product** turns it around: hover a product in the bar to sketch its whole network and frame it, then
+pick it to see its whole life for a month on one map. Supply lines run
 from every origin (coloured by transport mode) to where it is dispatched, then fan out to 23 grocers in six countries
 (the Netherlands, Germany, Belgium, the UK, France and Sweden), as wide as their share of the volume, with particles
 flowing along all of them. A panel breaks it down by origin, country and grocer, with volume-weighted CO2e, distance
@@ -70,7 +71,7 @@ src/model/geo.ts               great-circle and arc geometry, antimeridian handl
 src/model/routing.ts           optional real-road geometry for truck legs (public OSRM demo server)
 src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
-src/map/clouds.ts              WebGL cloud layer: noise-baked cloud texture on an elevated sphere, with shadows
+src/map/clouds.ts              WebGL clouds: a deck and high cirrus on elevated spheres, parallax, evolving shapes, shadows
 src/map/camera.ts              globe-aware framing and a scrubbable fly-to curve
 src/journey/timeline.ts        turns a computed route into timed segments, camera poses and running totals
 src/journey/vehicles.ts        side-view SVG vehicles for each transport mode
