@@ -28,21 +28,12 @@ function GradeChip({ co2 }: { co2: number }) {
 /** The product lens: one product from every field it grows in to every shelf it reaches, for a month. */
 export function LifecyclePanel({ lc, focus, onFocus, onFollow }: Props) {
   const month = useApp((s) => s.month);
-  const setMonth = useApp((s) => s.setMonth);
-  const [playing, setPlaying] = useState(false);
   const [openPick, setOpen] = useState<string | null>(lc.markets[0]?.market ?? null);
   // a country or grocer picked on the map opens its row here
   const focusMarket = focus?.kind === 'market' ? focus.id : focus?.kind === 'grocer' ? lc.markets.find((m) => m.grocers.some((g) => g.grocer.id === focus.id))?.market : undefined;
   const open = focusMarket ?? openPick;
   const rows = useRef<Record<string, HTMLLIElement | null>>({});
   useEffect(() => { if (focusMarket) rows.current[focusMarket]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [focusMarket]);
-
-  // "play the year": step through the months to watch the origins shift with the seasons
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => setMonth((useApp.getState().month % 12) + 1), 1600);
-    return () => window.clearInterval(id);
-  }, [playing, setMonth]);
 
   // the mode that carries it furthest, for the transport stage's icon
   const kmByMode = new Map<TransportMode, number>();
@@ -64,15 +55,8 @@ export function LifecyclePanel({ lc, focus, onFocus, onFollow }: Props) {
         <span className="lc-emoji">{lc.product.emoji}</span>
         <div>
           <b>{lc.product.name}</b>
-          <small>from farm to shelf across Europe</small>
+          <small>from farm to shelf across Europe in {MONTHS[month - 1]} · change the month or play the year on the timeline below</small>
         </div>
-      </div>
-
-      <div className="lc-month">
-        <select value={month} onChange={(e) => { setPlaying(false); setMonth(+e.target.value); }} aria-label="Month">
-          {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-        </select>
-        <button className={`lc-play ${playing ? 'on' : ''}`} onClick={() => setPlaying((p) => !p)}>{playing ? '⏸ Pause' : '▶ Play the year'}</button>
       </div>
 
       <ol className="lc-stages">
