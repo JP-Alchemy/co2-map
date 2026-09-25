@@ -1,5 +1,7 @@
 # Where does my food come from?
 
+**Live at [wheredoesmyfood.com](https://wheredoesmyfood.com)**
+
 An interactive map of the fresh-produce supply chains behind the five largest Dutch supermarket chains
 (Albert Heijn, Jumbo, Lidl, ALDI, PLUS). Pick a chain, a store, and a product from the fresh aisle, and the
 map shows where it was grown, how it travelled (ship, truck, air, ferry) through which ports, importers,
@@ -46,6 +48,43 @@ npm run dev
 
 Then open http://localhost:5173. `npm run build` produces a static site in `dist/` that can be hosted anywhere
 (no backend; all data is static JSON and TypeScript).
+
+## Deploy
+
+Every push to `main` is linted, built and published to GitHub Pages by
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml); it can also be run by hand from the Actions tab.
+The site is served from the root of **wheredoesmyfood.com**, so Vite's default `base` of `/` is right (a
+`github.io/co2-map/` address would need `base: '/co2-map/'` instead).
+
+One-time setup:
+
+1. **Pages on a private repository** needs a paid GitHub plan (GitHub Pro for a personal account); on a free plan
+   make the repository public instead.
+2. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
+3. **Settings → Pages → Custom domain:** `wheredoesmyfood.com`, save, and once the DNS check passes tick
+   **Enforce HTTPS** (the certificate can take up to an hour or so to be issued).
+4. **DNS at the domain registrar:**
+
+   | Type | Name | Value |
+   |---|---|---|
+   | A | `@` | `185.199.108.153` |
+   | A | `@` | `185.199.109.153` |
+   | A | `@` | `185.199.110.153` |
+   | A | `@` | `185.199.111.153` |
+   | AAAA | `@` | `2606:50c0:8000::153` |
+   | AAAA | `@` | `2606:50c0:8001::153` |
+   | AAAA | `@` | `2606:50c0:8002::153` |
+   | AAAA | `@` | `2606:50c0:8003::153` |
+   | CNAME | `www` | `jp-alchemy.github.io` |
+
+   Remove any other A, AAAA or CNAME records for `@` and `www` (a registrar's parking page, for example). With
+   `www` pointing at GitHub too, `www.wheredoesmyfood.com` redirects to the bare domain.
+5. **Verify the domain** under your GitHub account's *Settings → Pages → Add a domain* (a TXT record), so no
+   other GitHub account can ever claim it.
+6. Re-run the workflow (Actions → Deploy to GitHub Pages → Run workflow) if it failed before Pages was enabled.
+
+The page carries link-preview tags (`og:*`, `twitter:card`) with `public/og.jpg`, plus `robots.txt` and
+`sitemap.xml`; they use the full `https://wheredoesmyfood.com/` address, so change them if the domain changes.
 
 ## What is real, what is modelled
 
