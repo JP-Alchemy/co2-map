@@ -3,12 +3,16 @@ import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, type
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureCollection, Point, Position } from 'geojson';
 import { CHAINS, CHAIN_BY_ID, MODES } from '../data';
+import { fitCam, type Pad } from '../map/camera';
+import { CloudLayer } from '../map/clouds';
+import { globeZoom, SATELLITE_STYLE } from '../map/style';
 import type { ComputedRoute } from '../model/compute';
 import { useApp, type StoreFeature } from '../store';
 import type { StoreProps } from '../types';
 
-const STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const NL_BOUNDS: [number, number, number, number] = [3.2, 50.7, 7.3, 53.6];
+/** Where the globe looks on the landing view: the Atlantic, with Europe, Africa and the Americas in sight. */
+const GLOBE_CENTER: [number, number] = [-12, 28];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** Landing view: a globe with Europe and the Atlantic in view */
 const GLOBE_VIEW = { center: [-10, 32] as [number, number], zoom: 1.8 };
@@ -16,6 +20,9 @@ const GLOBE_VIEW = { center: [-10, 32] as [number, number], zoom: 1.8 };
 const SPIN_MS = 90_000;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
+const ROUTE_LAYERS = ['legs-casing', 'legs', 'legs-dash', 'legs-active', 'nodes', 'nodes-label'];
+/** the store picker's layers, which would only clutter the planet while a journey plays */
+const PICKER_LAYERS = ['clusters', 'cluster-count', 'stores-pt', 'dcs-halo', 'dcs', 'dcs-label'];
 
 interface Props {
   stores: FeatureCollection<Point, StoreProps> | null;
@@ -24,24 +31,28 @@ interface Props {
   activeStep: number | null;
   /** step the map should zoom to (set on click); the counter makes repeated clicks re-trigger */
   focusStep: { index: number; n: number } | null;
+  /** while the journey animation runs it owns the camera and draws its own route */
+  journeyActive: boolean;
+  onReady?: (map: MapLibreMap) => void;
 }
 
-export function MapView({ stores, computed, activeStep, focusStep }: Props) {
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
+  const clouds = useRef<CloudLayer | null>(null);
   const ready = useRef(false);
   const marker = useRef<Marker | null>(null);
-  const spin = useRef(false);
-  const startSpin = useRef<() => void>(() => {});
-  const stopSpin = useRef<() => void>(() => {});
+  const spin = useRef({ on: false, raf: 0 });
   const chainId = useApp((s) => s.chainId);
   const store = useApp((s) => s.store);
-  const setStore = useApp((s) => s.setStore);
+  const fxClouds = useApp((s) => s.fx.clouds);
 
   // ---- init
   useEffect(() => {
     if (!el.current || map.current) return;
-    const m = new MapLibreMap({ container: el.current, style: STYLE, center: GLOBE_VIEW.center, zoom: GLOBE_VIEW.zoom, attributionControl: false });
+    const m = new MapLibreMap({ container: el.current, style: SATELLITE_STYLE, center: GLOBE_CENTER, zoom: 1.5, attributionControl: false, maxPitch: 60 });
+    // the container only gets its size once MapLibre has styled it
+    m.jumpTo({ zoom: globeZoom(m.getContainer().clientWidth, m.getContainer().clientHeight) });
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     m.addControl(new AttributionControl({ compact: true, customAttribution: 'Stores © OpenStreetMap contributors' }), 'bottom-right');
     map.current = m;
@@ -66,48 +77,56 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
     });
 
     m.on('load', () => {
+      const cl = new CloudLayer();
+      cl.enabled = useApp.getState().fx.clouds;
+      clouds.current = cl;
+      m.addLayer(cl, 'country-labels');
+
       const chainColor: unknown[] = ['match', ['get', 'chain']];
       for (const c of CHAINS) chainColor.push(c.id, c.color);
       chainColor.push('#888');
+      const halo = 'rgba(2,6,23,0.85)';
 
       m.addSource('stores', { type: 'geojson', data: EMPTY, cluster: true, clusterRadius: 45, clusterMaxZoom: 11 });
       m.addLayer({ id: 'clusters', type: 'circle', source: 'stores', filter: ['has', 'point_count'],
-        paint: { 'circle-color': '#334155', 'circle-opacity': 0.85, 'circle-radius': ['step', ['get', 'point_count'], 14, 20, 18, 100, 24], 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+        paint: { 'circle-color': '#0f172a', 'circle-opacity': 0.82, 'circle-radius': ['step', ['get', 'point_count'], 14, 20, 18, 100, 24], 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
       m.addLayer({ id: 'cluster-count', type: 'symbol', source: 'stores', filter: ['has', 'point_count'],
         layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 11 }, paint: { 'text-color': '#fff' } });
       m.addLayer({ id: 'stores-pt', type: 'circle', source: 'stores', filter: ['!', ['has', 'point_count']],
         paint: { 'circle-color': chainColor as never, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' } });
 
       m.addSource('dcs', { type: 'geojson', data: EMPTY });
+      m.addLayer({ id: 'dcs-halo', type: 'circle', source: 'dcs', paint: { 'circle-color': '#fff', 'circle-radius': 14, 'circle-opacity': 0.9 } });
       m.addLayer({ id: 'dcs', type: 'circle', source: 'dcs',
         paint: { 'circle-color': ['get', 'color'], 'circle-radius': 9, 'circle-stroke-width': 3, 'circle-stroke-color': '#111827', 'circle-opacity': 0.95 } });
       m.addLayer({ id: 'dcs-label', type: 'symbol', source: 'dcs',
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-optional': true },
-        paint: { 'text-color': '#111827', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+        paint: { 'text-color': '#fff', 'text-halo-color': halo, 'text-halo-width': 1.5 } });
 
       m.addSource('legs', { type: 'geojson', data: EMPTY });
       m.addLayer({ id: 'legs-casing', type: 'line', source: 'legs', layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 } });
+        paint: { 'line-color': '#020617', 'line-width': 7, 'line-opacity': 0.6 } });
       m.addLayer({ id: 'legs', type: 'line', source: 'legs', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': ['get', 'color'], 'line-width': 3.5 } });
       m.addLayer({ id: 'legs-dash', type: 'line', source: 'legs', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#fff', 'line-width': 2, 'line-opacity': 0.9, 'line-dasharray': [0, 4, 3] } });
       m.addLayer({ id: 'legs-active', type: 'line', source: 'legs', filter: ['==', ['get', 'index'], -1], layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#111827', 'line-width': 9, 'line-opacity': 0.35 } });
+        paint: { 'line-color': '#fff', 'line-width': 10, 'line-opacity': 0.4, 'line-blur': 3 } });
 
       m.addSource('nodes', { type: 'geojson', data: EMPTY });
       m.addLayer({ id: 'nodes', type: 'circle', source: 'nodes',
-        paint: { 'circle-color': '#fff', 'circle-radius': ['case', ['get', 'major'], 7, 5], 'circle-stroke-width': 3, 'circle-stroke-color': '#111827' } });
+        paint: { 'circle-color': '#fff', 'circle-radius': ['case', ['get', 'major'], 7, 5], 'circle-stroke-width': 3, 'circle-stroke-color': '#0f172a' } });
       m.addLayer({ id: 'nodes-label', type: 'symbol', source: 'nodes',
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true, 'text-max-width': 12 },
-        paint: { 'text-color': '#111827', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+        paint: { 'text-color': '#fff', 'text-halo-color': halo, 'text-halo-width': 1.5 } });
 
       // animated dashes on route legs
       const seq = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
       let step = 0;
       const tick = (t: number) => {
+        if (!map.current) return;
         const s = Math.floor((t / 60) % seq.length);
-        if (s !== step) { step = s; if (m.getLayer('legs-dash')) m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]); }
+        if (s !== step) { step = s; if (m.getLayer('legs-dash') && m.getLayoutProperty('legs-dash', 'visibility') !== 'none') m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]); }
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -129,10 +148,36 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       }
       ready.current = true;
       m.fire(READY);
-      if (!useApp.getState().chainId) startSpin.current();
+      onReady?.(m);
     });
-    return () => { m.remove(); map.current = null; ready.current = false; };
-  }, [setStore]);
+
+    // any hand on the globe stops the landing-page spin
+    const sp = spin.current;
+    const stopSpin = () => { sp.on = false; };
+    m.on('mousedown', stopSpin); m.on('touchstart', stopSpin); m.on('wheel', stopSpin);
+    return () => { cancelAnimationFrame(sp.raf); m.remove(); map.current = null; ready.current = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- landing view: a slowly turning planet; picking a chain flies down to the Netherlands
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const sp = spin.current;
+    cancelAnimationFrame(sp.raf);
+    if (chainId) { sp.on = false; return; }
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    sp.on = !reduced;
+    let last = performance.now();
+    const turn = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      if (sp.on && !m.isMoving()) {
+        const c = m.getCenter();
+        m.jumpTo({ center: [c.lng + dt * 3.2, c.lat] });
+      }
+      sp.raf = requestAnimationFrame(turn);
+    };
+    sp.raf = requestAnimationFrame(turn);
+    return () => cancelAnimationFrame(sp.raf);
+  }, [chainId]);
 
   // ---- stores + DCs by chain
   useEffect(() => {
@@ -144,18 +189,23 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       const dcFeats = chain ? [...chain.dcs.map((d) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: d.coords }, properties: { label: d.name.replace(/^.*?(DC|distribution centre|central DC|central fresh DC|frozen DC)\s*/i, 'DC '), color: chain.color } })),
         { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: chain.hq.coords }, properties: { label: 'Head office', color: '#111827' } }] : [];
       (m.getSource('dcs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: dcFeats });
-      if (!chainId) {
-        stopSpin.current();
-        m.easeTo({ ...GLOBE_VIEW, duration: 1500, essential: true });
-        m.once('moveend', () => { if (!useApp.getState().chainId) startSpin.current(); });
-      } else if (!store) {
-        stopSpin.current();
-        setGlobe(m, true);
-        m.fitBounds(NL_BOUNDS, { padding: { top: 40, bottom: 40, left: sidebarPad(), right: 40 }, duration: 2000, essential: true });
-      }
     };
     if (ready.current) apply(); else m.once(READY, apply);
-  }, [stores, chainId, store]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stores, chainId]);
+
+  // ---- camera: back out to the planet without a chain, down to the Netherlands with one
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const apply = () => {
+      if (!chainId) {
+        const c = m.getContainer();
+        m.flyTo({ center: GLOBE_CENTER, zoom: globeZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 2400, essential: true });
+      } else if (!useApp.getState().store) {
+        m.fitBounds(NL_BOUNDS, { padding: { top: 40, bottom: 40, left: 40, right: 40 }, pitch: 0, bearing: 0, duration: 2600, essential: true });
+      }
+    };
+    if (ready.current) apply(); else if (chainId) m.once(READY, apply);
+  }, [chainId]);
 
   // ---- selected store marker
   useEffect(() => {
@@ -165,11 +215,11 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       const chain = CHAIN_BY_ID[store.properties.chain];
       const elm = document.createElement('div'); elm.className = 'store-marker'; elm.style.background = chain.color; elm.textContent = '🛒';
       marker.current = new Marker({ element: elm, anchor: 'center' }).setLngLat(store.geometry.coordinates as [number, number]).addTo(m);
-      if (!computed) m.easeTo({ center: store.geometry.coordinates as [number, number], zoom: Math.max(m.getZoom(), 11), padding: { left: sidebarPad(), top: 0, bottom: 0, right: 0 } });
+      if (!computed) m.easeTo({ center: store.geometry.coordinates as [number, number], zoom: Math.max(m.getZoom(), 11), padding: { left: 0, top: 0, bottom: 0, right: 0 } });
     }
   }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- route
+  // ---- route (hidden while the journey animation draws its own)
   useEffect(() => {
     const m = map.current; if (!m) return;
     const apply = () => {
@@ -177,15 +227,16 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       const nodes = computed ? computed.steps.filter((s) => s.kind === 'node').map((s) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: s.coords }, properties: { index: s.index, label: s.place.name.split(',')[0], major: s.step.role === 'origin' || s.step.role === 'store' } })) : [];
       (m.getSource('legs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: legs });
       (m.getSource('nodes') as GeoJSONSource).setData({ type: 'FeatureCollection', features: nodes });
-      if (!computed) setGlobe(m, true);
-      if (computed) {
+      for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', journeyActive ? 'none' : 'visible');
+      marker.current?.getElement().classList.toggle('hidden', journeyActive);
+      if (computed && !journeyActive) {
         const coords: Position[] = [];
         for (const s of computed.steps) if (s.kind === 'leg') coords.push(...s.path);
-        fitCoords(m, coords, { top: 60, bottom: 40, left: sidebarPad() + 40, right: 60 }, 12, 1200);
+        fitTo(m, coords, { top: 60, bottom: 40, left: 40, right: 60 }, 12, 1200);
       }
     };
     if (ready.current) apply(); else m.once(READY, apply);
-  }, [computed]);
+  }, [computed, journeyActive]);
 
   // ---- active step highlight (hover)
   useEffect(() => {
@@ -198,52 +249,27 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
     const m = map.current; if (!m || !ready.current) return;
     if (focusStep && computed) {
       const s = computed.steps.find((x) => x.index === focusStep.index);
-      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: { left: sidebarPad(), top: 0, bottom: 0, right: 0 } });
-      else if (s?.kind === 'leg') fitCoords(m, s.path, { top: 80, bottom: 80, left: sidebarPad() + 80, right: 80 }, 11, 800);
+      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: { left: 0, top: 0, bottom: 0, right: 0 } });
+      else if (s?.kind === 'leg') fitTo(m, s.path, { top: 80, bottom: 80, left: 80, right: 80 }, 11, 800);
     }
   }, [focusStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- clouds on/off
+  useEffect(() => {
+    if (clouds.current) { clouds.current.enabled = fxClouds; map.current?.triggerRepaint(); }
+  }, [fxClouds]);
 
   return <div ref={el} className="map" />;
 }
 
-function sidebarPad() { return 0; } // the sidebar sits beside the map, not over it
-
-/** Longitude span above which a route cannot be seen on one hemisphere, so the map falls back to the flat projection. */
-const GLOBE_MAX_SPAN = 140;
-
 /**
  * Fit the view to a set of (possibly antimeridian-unwrapped) coordinates. MapLibre's fitBounds
- * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe;
- * computing centre and zoom by hand keeps the route in one piece. On the globe the visible width
- * of an arc is proportional to sin(span/2), so wide routes need a different zoom than on Mercator.
+ * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe, and does
+ * not know the globe's curvature; fitCam handles both.
  */
-function fitCoords(m: MapLibreMap, coords: Position[], pad: { top: number; bottom: number; left: number; right: number }, maxZoom: number, duration: number) {
+function fitTo(m: MapLibreMap, coords: Position[], pad: Pad, maxZoom: number, duration: number) {
   if (!coords.length) return;
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const [lon, lat] of coords) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
-  const dLon = maxLon - minLon, dLat = maxLat - minLat;
-  const wide = dLon > GLOBE_MAX_SPAN;
-  setGlobe(m, !wide);
   const el = m.getContainer();
-  const w = Math.max(50, el.clientWidth - pad.left - pad.right), h = Math.max(50, el.clientHeight - pad.top - pad.bottom);
-  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
-  const invMercY = (y: number) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
-  let zoom: number;
-  if (wide) {
-    const dx = Math.max(1e-6, dLon / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
-    zoom = Math.min(Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy)));
-  } else {
-    // globe: diameter ≈ 512·2^z/π px; an arc of angle a spans ≈ diameter·sin(a/2) px at the centre of the view
-    const rad = Math.PI / 180, D0 = 512 / Math.PI;
-    const sx = Math.max(1e-4, Math.sin((Math.min(dLon, 179) * rad) / 2)), sy = Math.max(1e-4, Math.sin((Math.min(dLat + 6, 179) * rad) / 2));
-    zoom = Math.min(Math.log2(w / (D0 * sx)), Math.log2(h / (D0 * sy))) - 0.15;
-  }
-  zoom = Math.max(0.5, Math.min(maxZoom, zoom));
-  const center: [number, number] = [(minLon + maxLon) / 2, wide ? invMercY((mercY(minLat) + mercY(maxLat)) / 2) : (minLat + maxLat) / 2];
-  m.easeTo({ center, zoom, padding: pad, duration, essential: true });
-}
-
-function setGlobe(m: MapLibreMap, globe: boolean) {
-  const cur = (m.getProjection()?.type ?? 'mercator') as string;
-  if ((cur === 'globe') !== globe) m.setProjection({ type: globe ? 'globe' : 'mercator' });
+  const cam = fitCam(coords, el.clientWidth, el.clientHeight, pad, maxZoom);
+  m.easeTo({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: 0, padding: pad, duration });
 }

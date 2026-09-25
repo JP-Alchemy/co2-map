@@ -50,6 +50,13 @@ export const HANDLING_EUR_PER_KG = 0.03;
 export const IMPORT_MARGIN = 0.10;
 /** Dutch VAT on food */
 export const VAT = 0.09;
+/**
+ * kg CO2e released per litre of fuel burned, well-to-wheel (DEFRA 2024: diesel 2.51 tank-to-wheel + 0.61
+ * well-to-tank). Used to turn transport emissions into an intuitive "litres of diesel-equivalent".
+ */
+export const FUEL_CO2E_PER_L = 3.1;
+/** Average petrol car, kg CO2e per km, for "like driving … km" comparisons */
+export const CAR_KG_PER_KM = 0.16;
 
 export const SOURCES = [
   { id: 'defra', label: 'UK DEFRA/DESNZ GHG conversion factors 2024 (freight, refrigerated HGV, container ship, air freight)', url: 'https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2024' },

@@ -1,24 +1,27 @@
 import { Fragment } from 'react';
 import { MODES, PLACES, PRODUCERS, STORAGE } from '../data';
+import { CAR_KG_PER_KM } from '../data/factors';
+import { ROLE_ICON, ROLE_LABEL } from '../data/labels';
 import { fmtDuration, fmtEur, fmtKg, fmtKm, inSeason, MONTHS, type ComputedRoute } from '../model/compute';
 import { useApp } from '../store';
 import type { Product, SupplyRoute } from '../types';
 import { Bar, ConfidenceBadge, Flag, Tile } from './ui';
 
-const ROLE_LABEL: Record<string, string> = { origin: 'Grown here', packing: 'Packed', processing: 'Processed', port: 'Port', airport: 'Airport', import: 'Importer', ripening: 'Ripened', dc: 'Distribution centre', store: 'Your store' };
-const ROLE_ICON: Record<string, string> = { origin: '🌱', packing: '📦', processing: '🏭', port: '⚓', airport: '🛫', import: '🏢', ripening: '🌡️', dc: '🏬', store: '🛒' };
-const CAR_KG_PER_KM = 0.16;
 
 interface Props {
   product: Product;
   route: SupplyRoute | null;
   computed: ComputedRoute | null;
   activeStep: number | null;
+  /** step the journey animation is currently showing */
+  liveStep: number | null;
+  journeyActive: boolean;
+  onPlay: () => void;
   onHover: (i: number | null) => void;
   onFocus: (i: number) => void;
 }
 
-export function RoutePanel({ product, route, computed, activeStep, onHover, onFocus }: Props) {
+export function RoutePanel({ product, route, computed, activeStep, liveStep, journeyActive, onPlay, onHover, onFocus }: Props) {
   const month = useApp((s) => s.month);
   const setMonth = useApp((s) => s.setMonth);
   const setRoute = useApp((s) => s.setRoute);
@@ -37,6 +40,12 @@ export function RoutePanel({ product, route, computed, activeStep, onHover, onFo
         </div>
       </div>
       <p className="desc">{product.description}</p>
+      {computed && (
+        <button className={`play-journey ${journeyActive ? 'playing' : ''}`} onClick={onPlay}>
+          <span className="pj-icon">{journeyActive ? '↺' : '▶'}</span>
+          <span><b>{journeyActive ? 'Replay the journey' : 'Play the journey'}</b><small>watch it travel from the farm to your store</small></span>
+        </button>
+      )}
 
       <div className="month-row">
         <label>Shopping in</label>
@@ -55,7 +64,7 @@ export function RoutePanel({ product, route, computed, activeStep, onHover, onFo
         ))}
       </div>
 
-      {computed && route && <RouteDetail c={computed} activeStep={activeStep} onHover={onHover} onFocus={onFocus} useRoads={useRoads} setUseRoads={setUseRoads} />}
+      {computed && route && <RouteDetail c={computed} activeStep={activeStep} liveStep={liveStep} onHover={onHover} onFocus={onFocus} useRoads={useRoads} setUseRoads={setUseRoads} />}
     </div>
   );
 }
@@ -66,7 +75,7 @@ function seasonLabel(r: SupplyRoute) {
   return `${MONTHS[from - 1]} – ${MONTHS[to - 1]}`;
 }
 
-function RouteDetail({ c, activeStep, onHover, onFocus, useRoads, setUseRoads }: { c: ComputedRoute; activeStep: number | null; onHover: (i: number | null) => void; onFocus: (i: number) => void; useRoads: boolean; setUseRoads: (b: boolean) => void }) {
+function RouteDetail({ c, activeStep, liveStep, onHover, onFocus, useRoads, setUseRoads }: { c: ComputedRoute; activeStep: number | null; liveStep: number | null; onHover: (i: number | null) => void; onFocus: (i: number) => void; useRoads: boolean; setUseRoads: (b: boolean) => void }) {
   const packKg = c.product.pack.kg;
   const perPack = c.co2e.total * packKg;
   const carKm = perPack / CAR_KG_PER_KM;
@@ -82,14 +91,14 @@ function RouteDetail({ c, activeStep, onHover, onFocus, useRoads, setUseRoads }:
       </div>
 
       <h4>The journey</h4>
-      <p className="hint">Hover a step to highlight it, click to zoom the map to it. <label className="toggle"><input type="checkbox" checked={useRoads} onChange={(e) => setUseRoads(e.target.checked)} /> real roads for truck legs</label></p>
+      <p className="hint">Hover a step to highlight it, click to zoom the map to it (or jump the journey there). <label className="toggle"><input type="checkbox" checked={useRoads} onChange={(e) => setUseRoads(e.target.checked)} /> real roads for truck legs</label></p>
       <ol className="journey" onMouseLeave={() => onHover(null)}>
         {c.steps.map((s, i) => {
           const isTail = i >= c.tailStart;
           if (s.kind === 'node') {
             const sf = STORAGE[s.step.storage];
             return (
-              <li key={s.index} className={`node ${activeStep === s.index ? 'active' : ''} ${isTail ? 'tail' : ''}`} onMouseEnter={() => onHover(s.index)} onClick={() => onFocus(s.index)}>
+              <li key={s.index} className={`node ${activeStep === s.index ? 'active' : ''} ${liveStep === s.index ? 'live' : ''} ${isTail ? 'tail' : ''}`} onMouseEnter={() => onHover(s.index)} onClick={() => onFocus(s.index)}>
                 <span className="j-icon">{ROLE_ICON[s.step.role]}</span>
                 <div className="j-body">
                   <div className="j-title"><Flag country={s.place.country} /> {s.place.name} <ConfidenceBadge level={s.place.confidence} compact /></div>
@@ -101,7 +110,7 @@ function RouteDetail({ c, activeStep, onHover, onFocus, useRoads, setUseRoads }:
           }
           const mf = MODES[s.mode];
           return (
-            <li key={s.index} className={`leg ${activeStep === s.index ? 'active' : ''}`} onMouseEnter={() => onHover(s.index)} onClick={() => onFocus(s.index)} style={{ '--mode': mf.color } as never}>
+            <li key={s.index} className={`leg ${activeStep === s.index ? 'active' : ''} ${liveStep === s.index ? 'live' : ''}`} onMouseEnter={() => onHover(s.index)} onClick={() => onFocus(s.index)} style={{ '--mode': mf.color } as never}>
               <span className="j-icon mode">{mf.icon}</span>
               <div className="j-body">
                 <div className="j-title">{mf.label}{s.routed ? '' : ''}</div>
