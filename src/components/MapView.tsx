@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, type GeoJSONSource, type MapLayerMouseEvent } from 'maplibre-gl';
+import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, Popup, type GeoJSONSource, type MapLayerMouseEvent } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureCollection, Point, Position } from 'geojson';
 import { CHAINS, CHAIN_BY_ID, MODES } from '../data';
 import { fitCam, type Pad } from '../map/camera';
 import { CloudLayer } from '../map/clouds';
-import { globeZoom, SATELLITE_STYLE } from '../map/style';
+import { LANDING_PAD, landingZoom, SATELLITE_STYLE } from '../map/style';
 import type { ComputedRoute } from '../model/compute';
 import { useApp, type StoreFeature } from '../store';
 import type { StoreProps } from '../types';
@@ -33,16 +33,30 @@ interface Props {
   focusStep: { index: number; n: number } | null;
   /** while the journey animation runs it owns the camera and draws its own route */
   journeyActive: boolean;
+  /** a product hovered in the hotbar: its route is sketched on the map */
+  preview: ComputedRoute | null;
+  /** whether the left dock covers part of the map, so camera fits leave room for it */
+  dockOpen: boolean;
   onReady?: (map: MapLibreMap) => void;
 }
 
-export function MapView({ stores, computed, activeStep, focusStep, journeyActive, onReady }: Props) {
+/** Room the HUD takes around the map: the dock on the left (a bottom sheet on phones) and the hotbar below. */
+function hudPad(m: MapLibreMap, dock: boolean, bottom: number): Pad {
+  const el = m.getContainer();
+  if (el.clientWidth < 820) return { top: 64, bottom: dock ? Math.round(el.clientHeight * 0.5) : bottom, left: 20, right: 20 };
+  return { top: 70, bottom, left: dock ? 430 : 40, right: 60 };
+}
+
+export function MapView({ stores, computed, activeStep, focusStep, journeyActive, preview, dockOpen, onReady }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const clouds = useRef<CloudLayer | null>(null);
   const ready = useRef(false);
   const marker = useRef<Marker | null>(null);
+  const previewPin = useRef<Marker | null>(null);
   const spin = useRef({ on: false, raf: 0 });
+  const dockRef = useRef(dockOpen);
+  useEffect(() => { dockRef.current = dockOpen; }, [dockOpen]);
   const chainId = useApp((s) => s.chainId);
   const store = useApp((s) => s.store);
   const fxClouds = useApp((s) => s.fx.clouds);
@@ -52,7 +66,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     if (!el.current || map.current) return;
     const m = new MapLibreMap({ container: el.current, style: SATELLITE_STYLE, center: GLOBE_CENTER, zoom: 1.5, attributionControl: false, maxPitch: 60 });
     // the container only gets its size once MapLibre has styled it
-    m.jumpTo({ zoom: globeZoom(m.getContainer().clientWidth, m.getContainer().clientHeight) });
+    m.jumpTo({ zoom: landingZoom(m.getContainer().clientWidth, m.getContainer().clientHeight), padding: LANDING_PAD });
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     m.addControl(new AttributionControl({ compact: true, customAttribution: 'Stores © OpenStreetMap contributors' }), 'bottom-right');
     map.current = m;
@@ -102,13 +116,25 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true, 'text-max-width': 12 },
         paint: { 'text-color': '#fff', 'text-halo-color': halo, 'text-halo-width': 1.5 } });
 
+      m.addSource('preview', { type: 'geojson', data: EMPTY });
+      m.addLayer({ id: 'preview-glow', type: 'line', source: 'preview', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 12, 'line-blur': 9, 'line-opacity': 0.55 } });
+      m.addLayer({ id: 'preview-line', type: 'line', source: 'preview', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 3 } });
+      m.addLayer({ id: 'preview-dash', type: 'line', source: 'preview', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#fff', 'line-width': 1.6, 'line-opacity': 0.9, 'line-dasharray': [0, 4, 3] } });
+
       // animated dashes on route legs
       const seq = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5]];
       let step = 0;
       const tick = (t: number) => {
         if (!map.current) return;
         const s = Math.floor((t / 60) % seq.length);
-        if (s !== step) { step = s; if (m.getLayer('legs-dash') && m.getLayoutProperty('legs-dash', 'visibility') !== 'none') m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]); }
+        if (s !== step) {
+          step = s;
+          if (m.getLayer('legs-dash') && m.getLayoutProperty('legs-dash', 'visibility') !== 'none') m.setPaintProperty('legs-dash', 'line-dasharray', seq[s]);
+          if (m.getLayer('preview-dash')) m.setPaintProperty('preview-dash', 'line-dasharray', seq[s]);
+        }
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -128,6 +154,21 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         m.on('mouseenter', id, () => { m.getCanvas().style.cursor = 'pointer'; });
         m.on('mouseleave', id, () => { m.getCanvas().style.cursor = ''; });
       }
+      // a small card over the store under the pointer
+      const card = new Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'hud-popup', maxWidth: '260px' });
+      m.on('mousemove', 'stores-pt', (e: MapLayerMouseEvent) => {
+        const f = e.features?.[0]; if (!f) return;
+        const p = f.properties as StoreProps;
+        const body = document.createElement('div');
+        const name = document.createElement('b'); name.textContent = p.name;
+        const addr = document.createElement('small'); addr.textContent = [p.street, p.city].filter(Boolean).join(', ') || 'Address not tagged in OpenStreetMap';
+        const cta = document.createElement('span'); cta.className = 'hp-cta'; cta.textContent = 'Click to shop here →';
+        body.append(name, addr, cta);
+        card.setLngLat((f.geometry as Point).coordinates as [number, number]).setDOMContent(body).addTo(m);
+      });
+      m.on('mouseleave', 'stores-pt', () => card.remove());
+      // on phones the attribution starts folded behind its (i) button
+      if (m.getContainer().clientWidth < 820) m.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
       ready.current = true;
       m.fire(READY);
       onReady?.(m);
@@ -165,15 +206,16 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   useEffect(() => {
     const m = map.current; if (!m) return;
     const apply = () => {
-      const feats = stores && chainId ? stores.features.filter((f) => f.properties.chain === chainId) : [];
+      // once a store is chosen the other stores and the DCs would only clutter the board
+      const feats = stores && chainId && !store ? stores.features.filter((f) => f.properties.chain === chainId) : [];
       (m.getSource('stores') as GeoJSONSource).setData({ type: 'FeatureCollection', features: feats });
-      const chain = chainId ? CHAIN_BY_ID[chainId] : null;
+      const chain = chainId && !store ? CHAIN_BY_ID[chainId] : null;
       const dcFeats = chain ? [...chain.dcs.map((d) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: d.coords }, properties: { label: d.name.replace(/^.*?(DC|distribution centre|central DC|central fresh DC|frozen DC)\s*/i, 'DC '), color: chain.color } })),
         { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: chain.hq.coords }, properties: { label: 'Head office', color: '#111827' } }] : [];
       (m.getSource('dcs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: dcFeats });
     };
     if (ready.current) apply(); else m.once(READY, apply);
-  }, [stores, chainId]);
+  }, [stores, chainId, store]);
 
   // ---- camera: back out to the planet without a chain, down to the Netherlands with one (and back there when the store is cleared)
   useEffect(() => {
@@ -182,10 +224,10 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       if (!chainId) {
         setGlobe(m, true);
         const c = m.getContainer();
-        m.flyTo({ center: GLOBE_CENTER, zoom: globeZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 2400, essential: true });
+        m.flyTo({ center: GLOBE_CENTER, zoom: landingZoom(c.clientWidth, c.clientHeight), pitch: 0, bearing: 0, padding: LANDING_PAD, duration: 2400, essential: true });
       } else if (!store) {
         setGlobe(m, true);
-        m.fitBounds(NL_BOUNDS, { padding: { top: 40, bottom: 40, left: 40, right: 40 }, pitch: 0, bearing: 0, duration: 2600, essential: true });
+        m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dockRef.current, 60), pitch: 0, bearing: 0, duration: 2600, essential: true });
       }
     };
     if (ready.current) apply(); else if (chainId) m.once(READY, apply);
@@ -197,9 +239,21 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     marker.current?.remove(); marker.current = null;
     if (store) {
       const chain = CHAIN_BY_ID[store.properties.chain];
-      const elm = document.createElement('div'); elm.className = 'store-marker'; elm.style.background = chain.color; elm.textContent = '🛒';
-      marker.current = new Marker({ element: elm, anchor: 'center' }).setLngLat(store.geometry.coordinates as [number, number]).addTo(m);
-      if (!computed) m.easeTo({ center: store.geometry.coordinates as [number, number], zoom: Math.max(m.getZoom(), 11), padding: { left: 0, top: 0, bottom: 0, right: 0 } });
+      const elm = document.createElement('div'); elm.className = 'store-marker';
+      elm.style.setProperty('--c', chain.color);
+      const shock = document.createElement('span'); shock.className = 'sm-shock';
+      const body = document.createElement('span'); body.className = 'sm-body';
+      const emoji = document.createElement('span'); emoji.className = 'sm-emoji'; emoji.textContent = '🛒';
+      body.append(emoji);
+      elm.append(shock, body);
+      marker.current = new Marker({ element: elm, anchor: 'bottom' }).setLngLat(store.geometry.coordinates as [number, number]).addTo(m);
+      if (!computed) {
+        // the board: Europe and the seas around it, so the routes of hovered products are in view
+        const [lng, lat] = store.geometry.coordinates;
+        const phone = m.getContainer().clientWidth < 820;
+        setGlobe(m, true);
+        m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dockRef.current, 150), duration: 2200, essential: true });
+      }
     }
   }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -218,7 +272,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       if (computed && !journeyActive) {
         const coords: Position[] = [];
         for (const s of computed.steps) if (s.kind === 'leg') coords.push(...s.path);
-        fitTo(m, coords, { top: 60, bottom: 40, left: 40, right: 60 }, 12, 1200);
+        fitTo(m, coords, hudPad(m, dockRef.current, 150), 12, 1200);
       }
     };
     if (ready.current) apply(); else m.once(READY, apply);
@@ -235,10 +289,27 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const m = map.current; if (!m || !ready.current) return;
     if (focusStep && computed) {
       const s = computed.steps.find((x) => x.index === focusStep.index);
-      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: { left: 0, top: 0, bottom: 0, right: 0 } });
-      else if (s?.kind === 'leg') fitTo(m, s.path, { top: 80, bottom: 80, left: 80, right: 80 }, 11, 800);
+      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: hudPad(m, dockRef.current, 150) });
+      else if (s?.kind === 'leg') fitTo(m, s.path, hudPad(m, dockRef.current, 150), 11, 800);
     }
   }, [focusStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- hotbar hover: sketch the product's route and mark where it grows
+  useEffect(() => {
+    const m = map.current; if (!m || !ready.current) return;
+    const legs = preview ? preview.steps.filter((s) => s.kind === 'leg').map((s) => ({ type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: s.path }, properties: { color: MODES[s.mode].color } })) : [];
+    (m.getSource('preview') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features: legs });
+    previewPin.current?.remove(); previewPin.current = null;
+    const origin = preview?.steps[0];
+    if (preview && origin?.kind === 'node') {
+      const elm = document.createElement('div'); elm.className = 'preview-pin';
+      const ring = document.createElement('span'); ring.className = 'pp-ring';
+      const dot = document.createElement('span'); dot.className = 'pp-dot'; dot.textContent = preview.product.emoji;
+      const label = document.createElement('span'); label.className = 'pp-label'; label.textContent = `Grown in ${preview.route.origin.region}`;
+      elm.append(ring, dot, label);
+      previewPin.current = new Marker({ element: elm, anchor: 'center' }).setLngLat(origin.coords).addTo(m);
+    }
+  }, [preview]);
 
   // ---- clouds on/off
   useEffect(() => {

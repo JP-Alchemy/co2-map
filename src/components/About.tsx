@@ -1,4 +1,5 @@
 import { FUEL_CO2E_PER_L, HANDLING_EUR_PER_KG, IMPORT_MARGIN, MODES, SOURCES, STORAGE } from '../data/factors';
+import { GRADES } from '../game/grade';
 import { useApp } from '../store';
 import { ConfidenceBadge } from './ui';
 
@@ -36,6 +37,13 @@ export function About() {
 
         <h3>The journey animation</h3>
         <p>Choosing a product plays its journey on the globe. Time is compressed: each leg takes a few seconds, more for longer distances (on a logarithmic scale, so a 20 km truck hop and a 10,000 km crossing both stay watchable). The counters show the modelled values for one retail pack, adding each leg's distance, time, CO2e, fuel and freight cost as the vehicle moves, and each stop's storage, handling and margins when it is reached. The shelf price is only complete once the product reaches your store, where the retailer's margin and VAT are added. The clouds are decorative, not real weather.</p>
+
+        <h3>Grades, badges and the passport</h3>
+        <p>
+          Every product gets a CO2e grade from its farm-to-shelf total per kilogram, on fixed bands so an A means low-carbon in absolute terms, not just the best of its kind:{' '}
+          {GRADES.map((g, i) => <span key={g.grade}><b style={{ color: g.color }}>{g.grade}</b> {i === 0 ? `below ${g.max}` : i === GRADES.length - 1 ? `${GRADES[i - 1].max} kg or more` : `${GRADES[i - 1].max}–${g.max}`}{i < GRADES.length - 1 ? ', ' : '.'}</span>)}
+          {' '}Badges describe the journey (flown, shipped across an ocean, grown locally…) rather than judge it. Finished journeys are stamped in a passport that lives only in your browser; nothing is sent anywhere. Sound effects are synthesised in the browser and are off until you switch them on.
+        </p>
 
         <h3>Transport factors</h3>
         <table className="factors">

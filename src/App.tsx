@@ -2,18 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FeatureCollection, Point } from 'geojson';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { CHAIN_BY_ID, PRODUCT_BY_ID } from './data';
-import { inSeason } from './model/compute';
+import { pickRoute, type ComputedRoute } from './model/compute';
 import { useComputedRoute } from './model/useRoute';
-import { useApp } from './store';
-import type { Place, StoreProps } from './types';
+import { storePlaceOf, useApp } from './store';
+import type { StoreProps } from './types';
 import { About } from './components/About';
-import { ChainList } from './components/ChainList';
 import { ChainPanel } from './components/ChainPanel';
-import { FxToggles } from './components/FxToggles';
+import { ChainSelect } from './components/ChainSelect';
+import { Dock } from './components/Dock';
+import { Hotbar } from './components/Hotbar';
+import { HudControls, QuestTrail } from './components/Hud';
 import { JourneyPlayer } from './components/JourneyPlayer';
 import { MapView } from './components/MapView';
 import { RoutePanel } from './components/RoutePanel';
-import { StorePanel } from './components/StorePanel';
+import { StoreCard } from './components/StoreCard';
 
 export default function App() {
   const [stores, setStores] = useState<FeatureCollection<Point, StoreProps> | null>(null);
@@ -21,8 +23,9 @@ export default function App() {
   const [focusStep, setFocusStep] = useState<{ index: number; n: number } | null>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [journey, setJourney] = useState<{ key: string | null; run: number; open: boolean; seek: { index: number; n: number } | null }>({ key: null, run: 0, open: false, seek: null });
-  const [liveStep, setLiveStep] = useState<number | null>(null);
-  const { chainId, store, productId, routeId, month, view, useRoads, fx, setChain, setStore, setProduct, setRoute } = useApp();
+  const [preview, setPreview] = useState<ComputedRoute | null>(null);
+  const [dockOpen, setDockOpen] = useState(true);
+  const { chainId, store, productId, routeId, month, view, useRoads, fx, setProduct, setRoute, setMonth } = useApp();
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/stores.geojson`).then((r) => r.json()).then(setStores).catch(() => setStores({ type: 'FeatureCollection', features: [] }));
@@ -38,15 +41,10 @@ export default function App() {
   const product = productId ? PRODUCT_BY_ID[productId] : null;
 
   // pick a default route for the month when the product or month changes
-  const route = useMemo(() => {
-    if (!product) return null;
-    const live = product.routes.filter((r) => inSeason(r, month));
-    const pool = live.length ? live : product.routes;
-    return pool.find((r) => r.id === routeId) ?? [...pool].sort((a, b) => b.share - a.share)[0];
-  }, [product, routeId, month]);
+  const route = useMemo(() => (product ? pickRoute(product, month, routeId) : null), [product, routeId, month]);
   useEffect(() => { if (route && route.id !== routeId) setRoute(route.id); }, [route, routeId, setRoute]);
 
-  const storePlace = useMemo<Place | null>(() => store ? ({ id: `store_${store.properties.osm}`, name: `${store.properties.name}${store.properties.city ? ', ' + store.properties.city : ''}`, kind: 'store', country: 'NL', coords: store.geometry.coordinates as [number, number], confidence: 'verified' }) : null, [store]);
+  const storePlace = useMemo(() => (store ? storePlaceOf(store) : null), [store]);
   const computed = useComputedRoute(product, route, chain, storePlace, useRoads);
 
   // every newly chosen product (or origin) plays its journey from the farm to the shelf
@@ -54,43 +52,51 @@ export default function App() {
   if (journey.key !== journeyKey) setJourney({ key: journeyKey, run: journey.run + 1, open: !!journeyKey, seek: null });
   const playJourney = useCallback(() => setJourney((j) => ({ ...j, run: j.run + 1, open: true, seek: null })), []);
   const closeJourney = useCallback(() => setJourney((j) => ({ ...j, open: false })), []);
+  const pickAnother = useCallback(() => { setJourney((j) => ({ ...j, open: false })); setProduct(null); }, [setProduct]);
+  const swapTo = useCallback((id: string, m: number) => { setMonth(m); setRoute(id); }, [setMonth, setRoute]);
   const journeyActive = journey.open && !!computed && !!map;
   const focus = (index: number) => {
     if (journeyActive) setJourney((j) => ({ ...j, seek: { index, n: (j.seek?.n ?? 0) + 1 } }));
     else setFocusStep((f) => ({ index, n: (f?.n ?? 0) + 1 }));
   };
 
+  // each new screen opens the dock again; a hover preview never outlives the hotbar
+  const mode = !chain ? 'landing' : !store ? 'chain' : !product ? 'store' : journeyActive ? 'journey' : 'explore';
+  const [lastMode, setLastMode] = useState(mode);
+  if (mode !== lastMode) { setLastMode(mode); setDockOpen(true); if (mode === 'journey' || mode === 'landing' || mode === 'chain') setPreview(null); }
+  const dockVisible = mode === 'chain' || mode === 'store' || mode === 'explore';
+
   return (
-    <div className={`app ${journeyActive ? 'journey-mode' : ''}`}>
-      <header className="topbar">
-        <div className="brand" onClick={() => setChain(null)} role="button">
-          <span className="logo">🌍</span>
-          <span><b>Where does my food come from?</b><small>Fresh produce supply chains of Dutch supermarkets</small></span>
-        </div>
-        <nav className="crumbs">
-          <button className={!chainId ? 'cur' : ''} onClick={() => setChain(null)}>Chains</button>
-          {chain && <><span>›</span><button className={chainId && !store ? 'cur' : ''} onClick={() => setStore(null)} style={{ color: chain.color }}>{chain.name}</button></>}
-          {store && <><span>›</span><button className={store && !product ? 'cur' : ''} onClick={() => setProduct(null)}>{store.properties.city ?? 'Store'}</button></>}
-          {product && <><span>›</span><button className="cur">{product.emoji} {product.name}</button></>}
-        </nav>
-        <button className="about-btn" onClick={() => useApp.getState().setView(view === 'about' ? 'explore' : 'about')}>{view === 'about' ? 'Map' : 'About the data'}</button>
-      </header>
-
-      <aside className="sidebar">
-        {!chain && <ChainList counts={counts} />}
-        {chain && !store && <ChainPanel chain={chain} stores={stores} />}
-        {chain && store && !product && <StorePanel chain={chain} store={store} />}
-        {chain && store && product && <RoutePanel product={product} route={route} computed={computed} activeStep={activeStep} liveStep={journeyActive ? liveStep : null} journeyActive={journeyActive} onPlay={playJourney} onHover={setActiveStep} onFocus={focus} />}
-      </aside>
-
-      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${journeyActive ? 'journey-on' : ''}`}>
-        <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={journeyActive} onReady={setMap} />
+    <div className={`app mode-${mode}`}>
+      <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${journeyActive ? 'journey-on' : ''} ${dockVisible && dockOpen ? 'dock-open' : ''}`}>
+        <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={journeyActive}
+          preview={preview} dockOpen={dockVisible && dockOpen} onReady={setMap} />
         <div className="map-fx" aria-hidden="true" />
-        {!stores && <div className="loading">Loading 3,000 store locations…</div>}
-        {!chain && <div className="map-hint">Pick a supermarket chain to fly down to the Netherlands</div>}
-        {chain && !store && <div className="map-hint">Click a store dot to continue · clusters zoom in</div>}
-        {journeyActive && map && computed && <JourneyPlayer key={journey.run} map={map} computed={computed} seek={journey.seek} onStep={setLiveStep} onClose={closeJourney} />}
-        {!journeyActive && <FxToggles />}
+
+        <QuestTrail />
+        <HudControls />
+
+        {mode === 'landing' && <ChainSelect counts={counts} />}
+
+        {chain && dockVisible && (
+          <Dock key={mode} open={dockOpen} onToggle={() => setDockOpen((o) => !o)}
+            title={mode === 'chain' ? <><span className="dock-swatch" style={{ background: chain.color, color: chain.textColor }}>{chain.name[0]}</span>{chain.name}</>
+              : mode === 'store' ? <>📍 Your store</> : <>{product?.emoji} {product?.name}</>}>
+            {mode === 'chain' && <ChainPanel chain={chain} stores={stores} />}
+            {mode === 'store' && store && <StoreCard chain={chain} store={store} />}
+            {mode === 'explore' && product && <RoutePanel product={product} route={route} computed={computed} activeStep={activeStep} liveStep={null} journeyActive={false} onPlay={playJourney} onHover={setActiveStep} onFocus={focus} />}
+          </Dock>
+        )}
+
+        {chain && store && (mode === 'store' || mode === 'explore') && <Hotbar chain={chain} store={store} currentId={productId} onPreview={setPreview} />}
+
+        {journeyActive && map && computed && (
+          <JourneyPlayer key={journey.run} map={map} computed={computed} seek={journey.seek}
+            onClose={closeJourney} onPickAnother={pickAnother} onSwap={swapTo} />
+        )}
+
+        {!stores && <div className="toast top">Loading 3,000 store locations…</div>}
+        {mode === 'chain' && <div className="toast">🛒 Click a store to shop there · clusters zoom in</div>}
       </main>
 
       {view === 'about' && <About />}

@@ -219,7 +219,10 @@ export function camAt(tl: Timeline, t: number): Cam {
   const from = prev?.kind === 'leg' ? legCam(prev, 1) : tl.origin;
   const to = next?.kind === 'leg' ? legCam(next, 0) : tl.store;
   const hold = s.node!.step.role === 'origin' ? 0.45 : 0.2;
-  return flyCam(from, to, ease.inOutCubic(clamp01((p - hold) / (1 - hold))), w, h);
+  const cam = flyCam(from, to, ease.inOutCubic(clamp01((p - hold) / (1 - hold))), w, h);
+  // a little punch-in as the stop lands
+  const punch = p < 0.3 ? Math.sin((Math.PI * p) / 0.3) * 0.16 : 0;
+  return { ...cam, zoom: cam.zoom + punch };
 }
 
 // ---------------------------------------------------------------- formatting for the HUD
