@@ -10,6 +10,10 @@ import type { StoreProps } from '../types';
 const STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const NL_BOUNDS: [number, number, number, number] = [3.2, 50.7, 7.3, 53.6];
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
+/** Landing view: a globe with Europe and the Atlantic in view */
+const GLOBE_VIEW = { center: [-10, 32] as [number, number], zoom: 1.8 };
+/** One full rotation of the idle globe takes this long */
+const SPIN_MS = 90_000;
 /** Custom event fired once all sources and layers exist (typed as a built-in event name to satisfy MapLibre's typings). */
 const READY = 'app-ready' as unknown as 'load';
 
@@ -27,6 +31,9 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
   const map = useRef<MapLibreMap | null>(null);
   const ready = useRef(false);
   const marker = useRef<Marker | null>(null);
+  const spin = useRef(false);
+  const startSpin = useRef<() => void>(() => {});
+  const stopSpin = useRef<() => void>(() => {});
   const chainId = useApp((s) => s.chainId);
   const store = useApp((s) => s.store);
   const setStore = useApp((s) => s.setStore);
@@ -34,10 +41,29 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
   // ---- init
   useEffect(() => {
     if (!el.current || map.current) return;
-    const m = new MapLibreMap({ container: el.current, style: STYLE, bounds: NL_BOUNDS, fitBoundsOptions: { padding: 40 }, attributionControl: false });
+    const m = new MapLibreMap({ container: el.current, style: STYLE, center: GLOBE_VIEW.center, zoom: GLOBE_VIEW.zoom, attributionControl: false });
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     m.addControl(new AttributionControl({ compact: true, customAttribution: 'Stores © OpenStreetMap contributors' }), 'bottom-right');
     map.current = m;
+    if (import.meta.env.DEV) Object.assign(window, { __map: m, __spin: spin });
+
+    // Idle spin: linear easeTo in 45° steps (the globe projection normalises a +360° target to a no-op),
+    // chained from moveend while spinning is on.
+    const SPIN_STEP = 45;
+    const spinOnce = () => {
+      if (!spin.current) return;
+      const c = m.getCenter();
+      m.easeTo({ center: [c.lng + SPIN_STEP, c.lat], duration: (SPIN_MS * SPIN_STEP) / 360, easing: (t) => t, essential: true });
+    };
+    startSpin.current = () => { if (spin.current) return; spin.current = true; spinOnce(); };
+    stopSpin.current = () => { if (!spin.current) return; spin.current = false; m.stop(); };
+    m.on('moveend', () => { if (spin.current) spinOnce(); });
+    for (const ev of ['mousedown', 'touchstart', 'wheel'] as const) m.on(ev, () => stopSpin.current());
+
+    m.on('style.load', () => {
+      m.setProjection({ type: 'globe' });
+      m.setSky({ 'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0] } as never);
+    });
 
     m.on('load', () => {
       const chainColor: unknown[] = ['match', ['get', 'chain']];
@@ -103,6 +129,7 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       }
       ready.current = true;
       m.fire(READY);
+      if (!useApp.getState().chainId) startSpin.current();
     });
     return () => { m.remove(); map.current = null; ready.current = false; };
   }, [setStore]);
@@ -117,10 +144,18 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       const dcFeats = chain ? [...chain.dcs.map((d) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: d.coords }, properties: { label: d.name.replace(/^.*?(DC|distribution centre|central DC|central fresh DC|frozen DC)\s*/i, 'DC '), color: chain.color } })),
         { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: chain.hq.coords }, properties: { label: 'Head office', color: '#111827' } }] : [];
       (m.getSource('dcs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: dcFeats });
-      if (!store) m.fitBounds(NL_BOUNDS, { padding: { top: 40, bottom: 40, left: sidebarPad(), right: 40 }, duration: 800 });
+      if (!chainId) {
+        stopSpin.current();
+        m.easeTo({ ...GLOBE_VIEW, duration: 1500, essential: true });
+        m.once('moveend', () => { if (!useApp.getState().chainId) startSpin.current(); });
+      } else if (!store) {
+        stopSpin.current();
+        setGlobe(m, true);
+        m.fitBounds(NL_BOUNDS, { padding: { top: 40, bottom: 40, left: sidebarPad(), right: 40 }, duration: 2000, essential: true });
+      }
     };
     if (ready.current) apply(); else m.once(READY, apply);
-  }, [stores, chainId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stores, chainId, store]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- selected store marker
   useEffect(() => {
@@ -142,6 +177,7 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
       const nodes = computed ? computed.steps.filter((s) => s.kind === 'node').map((s) => ({ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: s.coords }, properties: { index: s.index, label: s.place.name.split(',')[0], major: s.step.role === 'origin' || s.step.role === 'store' } })) : [];
       (m.getSource('legs') as GeoJSONSource).setData({ type: 'FeatureCollection', features: legs });
       (m.getSource('nodes') as GeoJSONSource).setData({ type: 'FeatureCollection', features: nodes });
+      if (!computed) setGlobe(m, true);
       if (computed) {
         const coords: Position[] = [];
         for (const s of computed.steps) if (s.kind === 'leg') coords.push(...s.path);
@@ -172,21 +208,42 @@ export function MapView({ stores, computed, activeStep, focusStep }: Props) {
 
 function sidebarPad() { return 0; } // the sidebar sits beside the map, not over it
 
+/** Longitude span above which a route cannot be seen on one hemisphere, so the map falls back to the flat projection. */
+const GLOBE_MAX_SPAN = 140;
+
 /**
  * Fit the view to a set of (possibly antimeridian-unwrapped) coordinates. MapLibre's fitBounds
  * normalises longitudes, which breaks routes that run from New Zealand eastwards to Europe;
- * computing centre and zoom by hand keeps the route in one piece.
+ * computing centre and zoom by hand keeps the route in one piece. On the globe the visible width
+ * of an arc is proportional to sin(span/2), so wide routes need a different zoom than on Mercator.
  */
 function fitCoords(m: MapLibreMap, coords: Position[], pad: { top: number; bottom: number; left: number; right: number }, maxZoom: number, duration: number) {
   if (!coords.length) return;
   let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
   for (const [lon, lat] of coords) { minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
-  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
-  const invMercY = (y: number) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
+  const dLon = maxLon - minLon, dLat = maxLat - minLat;
+  const wide = dLon > GLOBE_MAX_SPAN;
+  setGlobe(m, !wide);
   const el = m.getContainer();
   const w = Math.max(50, el.clientWidth - pad.left - pad.right), h = Math.max(50, el.clientHeight - pad.top - pad.bottom);
-  const dx = Math.max(1e-6, (maxLon - minLon) / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
-  const zoom = Math.max(0.5, Math.min(maxZoom, Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy))));
-  const center: [number, number] = [(minLon + maxLon) / 2, invMercY((mercY(minLat) + mercY(maxLat)) / 2)];
-  m.easeTo({ center, zoom, padding: pad, duration });
+  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360));
+  const invMercY = (y: number) => ((2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180) / Math.PI;
+  let zoom: number;
+  if (wide) {
+    const dx = Math.max(1e-6, dLon / 360), dy = Math.max(1e-6, (mercY(maxLat) - mercY(minLat)) / (2 * Math.PI));
+    zoom = Math.min(Math.log2(w / (512 * dx)), Math.log2(h / (512 * dy)));
+  } else {
+    // globe: diameter ≈ 512·2^z/π px; an arc of angle a spans ≈ diameter·sin(a/2) px at the centre of the view
+    const rad = Math.PI / 180, D0 = 512 / Math.PI;
+    const sx = Math.max(1e-4, Math.sin((Math.min(dLon, 179) * rad) / 2)), sy = Math.max(1e-4, Math.sin((Math.min(dLat + 6, 179) * rad) / 2));
+    zoom = Math.min(Math.log2(w / (D0 * sx)), Math.log2(h / (D0 * sy))) - 0.15;
+  }
+  zoom = Math.max(0.5, Math.min(maxZoom, zoom));
+  const center: [number, number] = [(minLon + maxLon) / 2, wide ? invMercY((mercY(minLat) + mercY(maxLat)) / 2) : (minLat + maxLat) / 2];
+  m.easeTo({ center, zoom, padding: pad, duration, essential: true });
+}
+
+function setGlobe(m: MapLibreMap, globe: boolean) {
+  const cur = (m.getProjection()?.type ?? 'mercator') as string;
+  if ((cur === 'globe') !== globe) m.setProjection({ type: globe ? 'globe' : 'mercator' });
 }
