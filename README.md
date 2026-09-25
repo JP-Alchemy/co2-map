@@ -27,6 +27,11 @@ and days; click a country or grocer to zoom to its distribution, play the year t
 seasons, or follow any grocer's flow as a full journey. The export splits and the foreign grocers' locations are an
 indicative model, labelled as such in the app.
 
+Both bars carry the **year as a timeline**: a bar per month for the product under the pointer (or the one on the
+map), as tall as its footprint that month and coloured by grade, with a flag wherever its main origin changes and
+a dot on the lowest months. Drag or click it to pick a month, use the arrow keys, or press play to sweep through
+the year and watch the origins, the map and the aisle change with the seasons.
+
 ## Run it
 
 ```bash
@@ -78,6 +83,7 @@ src/journey/vehicles.ts        side-view SVG vehicles for each transport mode
 src/game/                      CO2e grade bands, badges, synthesised sound effects
 src/components/JourneyPlayer.tsx  the journey animation: vehicle, trail, stop pins, ledger, particles, scrubber
 src/components/ResultScreen.tsx   grade, badges, swap-to-save tip and passport at the end of a journey
+src/components/MonthTimeline.tsx  the year as a draggable month scrubber, with a footprint bar per month and play
 src/components/Hud.tsx         trail of chips (where you are) and the settings in the corner
 src/components/Hotbar.tsx      the fresh aisle as an inventory bar, with route previews on hover
 src/components/LifecyclePanel.tsx  the product view's breakdown by origin, country and grocer

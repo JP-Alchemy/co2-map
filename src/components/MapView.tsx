@@ -46,8 +46,10 @@ interface Props {
   onReady?: (map: MapLibreMap) => void;
 }
 
+/** Room below a route framed while the hotbar (products and the month timeline) is on screen. */
+const HOTBAR_BOTTOM = 215;
 /** Room below a hovered product's route (the hotbar plus the tooltip above the tile) and to its right (the origin's label). */
-const PREVIEW_BOTTOM = 215;
+const PREVIEW_BOTTOM = 280;
 const PREVIEW_RIGHT = 200;
 /** Pause on a tile before the camera moves, so skimming along the aisle doesn't swing the map about. */
 const PREVIEW_DELAY_MS = 140;
@@ -291,7 +293,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       for (const id of [...ROUTE_LAYERS, ...PICKER_LAYERS]) m.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible');
       marker.current?.getElement().classList.toggle('hidden', hide);
       if (computed && !hide) {
-        fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, 150), 12, 1200);
+        fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 12, 1200);
       }
     };
     if (ready.current) apply(); else m.once(READY, apply);
@@ -308,8 +310,8 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const m = map.current; if (!m || !ready.current) return;
     if (focusStep && computed) {
       const s = computed.steps.find((x) => x.index === focusStep.index);
-      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: hudPad(m, dockRef.current, 150) });
-      else if (s?.kind === 'leg') fitTo(m, s.path, hudPad(m, dockRef.current, 150), 11, 800);
+      if (s?.kind === 'node') m.easeTo({ center: s.coords, zoom: Math.max(m.getZoom(), 9), padding: hudPad(m, dockRef.current, HOTBAR_BOTTOM) });
+      else if (s?.kind === 'leg') fitTo(m, s.path, hudPad(m, dockRef.current, HOTBAR_BOTTOM), 11, 800);
     }
   }, [focusStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -328,7 +330,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
       previewTimer.current = window.setTimeout(() => {
         const now = latest.current;
         if (now.journeyActive) return;
-        if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dockRef.current, 150), 12, 900);
+        if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 12, 900);
         else if (now.store) boardView(m, now.store, dockRef.current, 1000);
       }, PREVIEW_RETURN_MS);
     }
@@ -363,7 +365,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         const now = latest.current;
         spin.current.hold = false;
         if (now.journeyActive || now.lens !== 'product') return;
-        if (now.lifecycle) fitTo(m, lifecycleCoords(now.lifecycle, now.lcFocus), hudPad(m, dockRef.current, 150), 9, 900);
+        if (now.lifecycle) fitTo(m, lifecycleCoords(now.lifecycle, now.lcFocus), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 9, 900);
         else flyToGlobe(m);
       }, PREVIEW_RETURN_MS);
     }
@@ -378,7 +380,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const apply = () => {
       overlay.current?.show(lifecycle);
       overlay.current?.setFocus(null);
-      if (lifecycle) fitTo(m, lifecycleCoords(lifecycle, null), hudPad(m, dockRef.current, 150), 9, 1400);
+      if (lifecycle) fitTo(m, lifecycleCoords(lifecycle, null), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 9, 1400);
       else if (lens === 'product') flyToGlobe(m);
       else restoreSupermarketView(m, latest.current, dockRef.current);
     };
@@ -388,7 +390,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
   useEffect(() => {
     const m = map.current; if (!m || !ready.current || !lifecycle) return;
     overlay.current?.setFocus(lcFocus);
-    fitTo(m, lifecycleCoords(lifecycle, lcFocus), hudPad(m, dockRef.current, 150), 9, 1000);
+    fitTo(m, lifecycleCoords(lifecycle, lcFocus), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 9, 1000);
   }, [lcFocus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { overlay.current?.setVisible(!journeyActive); }, [journeyActive]);
@@ -405,7 +407,7 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
 function restoreSupermarketView(m: MapLibreMap, now: { chainId: string | null; store: StoreFeature | null; computed: ComputedRoute | null }, dock: boolean) {
   if (!now.chainId) flyToGlobe(m);
   else if (!now.store) m.fitBounds(NL_BOUNDS, { padding: hudPad(m, dock, 60), pitch: 0, bearing: 0, duration: 1600, essential: true });
-  else if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dock, 150), 12, 1400);
+  else if (now.computed) fitTo(m, routeCoords(now.computed), hudPad(m, dock, HOTBAR_BOTTOM), 12, 1400);
   else boardView(m, now.store, dock, 1400);
 }
 
@@ -434,7 +436,7 @@ function routeCoords(c: ComputedRoute): Position[] {
 function boardView(m: MapLibreMap, store: StoreFeature, dock: boolean, duration: number) {
   const [lng, lat] = store.geometry.coordinates;
   const phone = m.getContainer().clientWidth < 820;
-  m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dock, 150), duration, essential: true });
+  m.flyTo({ center: phone ? [lng, lat - 5] : [lng + 2, lat - 9], zoom: phone ? 3 : 3.5, pitch: 0, bearing: 0, padding: hudPad(m, dock, HOTBAR_BOTTOM), duration, essential: true });
 }
 
 /**

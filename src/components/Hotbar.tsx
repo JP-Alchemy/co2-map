@@ -1,10 +1,12 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { MODES, PLACES, PRODUCTS } from '../data';
+import { MODES, PLACES, PRODUCT_BY_ID, PRODUCTS } from '../data';
 import { gradeOf } from '../game/grade';
 import { sfx } from '../game/sound';
-import { computeRoute, fmtKg, fmtKm, inSeason, MONTHS, pickRoute, type ComputedRoute } from '../model/compute';
+import { computeRoute, fmtKg, fmtKm, inSeason, pickRoute, type ComputedRoute } from '../model/compute';
+import { useRouteYear } from '../model/useYear';
 import { storePlaceOf, useApp, type StoreFeature } from '../store';
 import type { Chain, TransportMode } from '../types';
+import { MonthTimeline } from './MonthTimeline';
 import { Flag } from './ui';
 
 const CATS: [string, string][] = [['fruit', 'Fruit'], ['vegetable', 'Veg'], ['dairy', 'Dairy'], ['eggs', 'Eggs'], ['meat', 'Meat'], ['fish', 'Fish']];
@@ -24,6 +26,7 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
   const setMonth = useApp((s) => s.setMonth);
   const setProduct = useApp((s) => s.setProduct);
   const passport = useApp((s) => s.passport);
+  const routeId = useApp((s) => s.routeId);
   const place = useMemo(() => storePlaceOf(store), [store]);
   const [hover, setHover] = useState<{ id: string; x: number } | null>(null);
 
@@ -37,6 +40,10 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
   }), [chain, place, month]);
 
   const hovered = hover ? items.find((x) => x.p.id === hover.id) : null;
+  // the timeline shows the year of the product under the pointer, else of the one on the map
+  const yearOf = hovered?.p ?? (currentId ? PRODUCT_BY_ID[currentId] : null);
+  const yearRoute = yearOf?.id === currentId ? routeId : null;
+  const year = useRouteYear(yearOf, chain, place, yearRoute);
   const enter = (id: string, target: HTMLElement) => {
     const bar = target.closest('.hotbar')!.getBoundingClientRect(), r = target.getBoundingClientRect();
     // keep the tooltip over the bar even for the first and last tiles
@@ -60,13 +67,9 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
           </span>
         </div>
       )}
+      {/* with a journey on the map, a new month can mean a new origin and so a new journey: set it once the drag ends */}
+      <MonthTimeline month={month} onChange={setMonth} stats={year} playable={!currentId} commitOnRelease={!!currentId} onEnter={leave} />
       <div className="hb-side">
-        <label className="hb-month" title="Origins change with the season">
-          <span>🗓</span>
-          <select value={month} onChange={(e) => setMonth(+e.target.value)} aria-label="Shopping month">
-            {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
-        </label>
         <span className="hb-hint">Pick a product<br />to play its journey</span>
       </div>
       <div className="hb-scroll">
