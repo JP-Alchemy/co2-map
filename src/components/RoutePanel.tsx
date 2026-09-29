@@ -4,6 +4,7 @@ import { CAR_KG_PER_KM } from '../data/factors';
 import { ROLE_ICON, ROLE_LABEL } from '../data/labels';
 import { fmtDuration, fmtEur, fmtKg, fmtKm, inSeason, MONTHS, type ComputedRoute } from '../model/compute';
 import { computeWaste, fmtMass } from '../model/waste';
+import { sfx } from '../game/sound';
 import { useApp } from '../store';
 import type { Product, SupplyRoute } from '../types';
 import { Bar, ConfidenceBadge, Flag, Tile } from './ui';
@@ -48,6 +49,7 @@ export function RoutePanel({ product, route, computed, activeStep, liveStep, jou
           <span><b>{journeyActive ? 'Replay the journey' : 'Play the journey'}</b><small>watch it travel from the farm to your store</small></span>
         </button>
       )}
+      <BasketControl productId={product.id} />
       <button className="lc-link" onClick={() => useApp.getState().setLifecycle(product.id)}>🌍 Where else does it go? <span>{product.name}: every grocer, every country →</span></button>
 
       <div className="month-row">
@@ -68,6 +70,26 @@ export function RoutePanel({ product, route, computed, activeStep, liveStep, jou
       </div>
 
       {computed && route && <RouteDetail c={computed} activeStep={activeStep} liveStep={liveStep} onHover={onHover} onFocus={onFocus} useRoads={useRoads} setUseRoads={setUseRoads} />}
+    </div>
+  );
+}
+
+/** Add this product to the weekly-shop basket, or change how many packs are in it. */
+function BasketControl({ productId }: { productId: string }) {
+  const packs = useApp((s) => s.basket.items.find((i) => i.productId === productId)?.packs ?? 0);
+  const store = useApp((s) => s.store);
+  const addToBasket = useApp((s) => s.addToBasket);
+  const setPacks = useApp((s) => s.setPacks);
+  const setBasketOpen = useApp((s) => s.setBasketOpen);
+  if (!packs) return <button className="basket-add" onClick={() => { sfx.coin(); addToBasket(productId, 1, store); }}>🧺 Add to my weekly shop</button>;
+  return (
+    <div className="basket-add in">
+      <button className="ba-open" onClick={() => setBasketOpen(true)}>🧺 In your basket</button>
+      <span className="bk-stepper">
+        <button onClick={() => setPacks(productId, packs - 1)} aria-label="One pack less">−</button>
+        <b>{packs}</b>
+        <button onClick={() => setPacks(productId, packs + 1)} aria-label="One pack more">+</button>
+      </span>
     </div>
   );
 }

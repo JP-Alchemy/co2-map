@@ -51,6 +51,15 @@ export function About() {
           <li><b>Every line is a full modelled route</b>, from farm to a store near that distribution centre, using the same factors as the rest of the map, so the CO2e, distance and days per country and per grocer are comparable. Averages are weighted by volume.</li>
         </ul>
 
+        <h3>Your weekly shop</h3>
+        <p>
+          The basket (🧺, top right) adds up a whole shop at one store: add products with the + on each product in the aisle, from a product's page or at the end of its
+          journey, or start from a typical week and change it. Each product counts one typical pack, from the origin that store usually has that month, so the totals
+          change with the month you shop in; the chart shows the same basket in every month. Swaps suggest an origin that is in season now at that chain with a clearly lower
+          footprint (at least 10% less), and seasonal tips point to months when a product is at least 20% lower. The basket, including the store it is priced at, is kept in
+          your browser only.
+        </p>
+
         <h3>Food waste</h3>
         <p>
           Every product also shows how much food is lost between the field and the plate, where it goes, and what that adds to the price. The loss rates are FAO's

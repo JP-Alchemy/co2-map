@@ -20,6 +20,12 @@ it earned, a lower-carbon origin to try instead, and a stamp in your passport (k
 can be paused, scrubbed, sped up, skipped or replayed (space, arrow keys and Esc work too); sound is off until you
 switch it on; with reduced motion the journey opens on its final frame.
 
+**My weekly shop** (🧺, top right) adds up a whole basket at your store: add products with the + on each product in
+the aisle, from its page or at the end of its journey, or start from a typical week. It totals the CO2e (with a grade),
+the receipt, the kilometres travelled and the food lost on the way, shows the same basket in every month of the year,
+and suggests swaps: an in-season origin with a clearly lower footprint (one click to switch) and months when a product
+is much lower. Click a product to play its journey. The basket is kept in your browser.
+
 **Food waste** is part of every product's story: how much is harvested for each kilo that reaches the shelf, what is
 lost at the farm, in packing and transport, in the store and at home (FAO's regional loss rates), where that food ends
 up (food banks, other food, animal feed, biogas, compost, incineration…), and what share of the price and the footprint
@@ -127,6 +133,7 @@ src/model/routing.ts           optional real-road geometry for truck legs (publi
 src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
 src/data/waste.ts              food loss rates by stage, region and food group (FAO 2011), and where lost food goes
 src/model/waste.ts             food waste along a computed route: kg lost per stop, cost and CO2e of the losses
+src/model/basket.ts            the weekly shop: totals, swaps, best months and the basket's footprint in every month
 src/model/near.ts              near me: browser location, nearest store per chain, town/postcode lookup in the store data
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)
 src/map/clouds.ts              WebGL clouds: a deck and high cirrus on elevated spheres, parallax, evolving shapes, shadows

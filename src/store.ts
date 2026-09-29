@@ -30,6 +30,20 @@ function loadPassport(): Passport {
   try { return { products: {}, badges: {}, ...JSON.parse(localStorage.getItem(PASSPORT_KEY) || '{}') }; } catch { return { products: {}, badges: {} }; }
 }
 
+/** The player's weekly shop: products (in retail packs, with an origin they picked) priced at one store. Remembered per browser. */
+export interface BasketItem { productId: string; packs: number; routeId?: string | null }
+export interface Basket { items: BasketItem[]; store: StoreFeature | null }
+const BASKET_KEY = 'co2map.basket.v1';
+function loadBasket(): Basket {
+  try {
+    const b = JSON.parse(localStorage.getItem(BASKET_KEY) || '{}');
+    return { items: Array.isArray(b.items) ? b.items.filter((i: BasketItem) => i && typeof i.productId === 'string' && i.packs > 0) : [], store: b.store ?? null };
+  } catch { return { items: [], store: null }; }
+}
+function saveBasket(b: Basket) {
+  try { localStorage.setItem(BASKET_KEY, JSON.stringify(b)); } catch { /* private mode */ }
+}
+
 /** Follow one supermarket's supply chain to a store, or one product across all its markets. */
 export type Lens = 'grocer' | 'product';
 
@@ -52,6 +66,8 @@ interface AppState {
   here: Here | null;
   locating: boolean;
   locateError: LocateError | null;
+  basket: Basket;
+  basketOpen: boolean;
   setLens: (lens: Lens) => void;
   setLifecycle: (id: string | null) => void;
   /** back to the start screen of the current lens */
@@ -72,6 +88,15 @@ interface AppState {
   showNearby: () => void;
   /** choose a store of any chain in one go */
   shopAt: (store: StoreFeature) => void;
+  /** Put packs of a product in the basket (priced at `store`, or the store the basket already has). */
+  addToBasket: (productId: string, packs?: number, store?: StoreFeature | null) => void;
+  /** Set a product's number of packs; 0 takes it out. */
+  setPacks: (productId: string, packs: number) => void;
+  /** Buy a product from this origin whenever it is in season (null: whatever the store usually has). */
+  pinOrigin: (productId: string, routeId: string | null) => void;
+  /** Fill an empty basket in one go, or price it at another store. */
+  setBasket: (b: Partial<Basket>) => void;
+  setBasketOpen: (open: boolean) => void;
   /** Stamp a completed journey; returns which badges and product were new. */
   stamp: (productId: string, routeId: string, grade: Grade, badgeIds: string[]) => { newProduct: boolean; newBadges: string[] };
 }
@@ -92,6 +117,8 @@ export const useApp = create<AppState>((set, get) => ({
   here: null,
   locating: false,
   locateError: null,
+  basket: loadBasket(),
+  basketOpen: false,
   setLens: (lens) => set({ lens }),
   setLifecycle: (lifecycleId) => set({ lifecycleId, lens: 'product' }),
   goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null, nearby: false }),
@@ -118,6 +145,31 @@ export const useApp = create<AppState>((set, get) => ({
   setHere: (here) => set({ here, locateError: null }),
   showNearby: () => set({ nearby: true, lens: 'grocer', chainId: null, store: null, productId: null, routeId: null }),
   shopAt: (store) => set({ chainId: store.properties.chain, store, productId: null, routeId: null }),
+  addToBasket: (productId, packs = 1, store) => set((s) => {
+    const items = s.basket.items.some((i) => i.productId === productId)
+      ? s.basket.items.map((i) => (i.productId === productId ? { ...i, packs: i.packs + packs } : i))
+      : [...s.basket.items, { productId, packs }];
+    const basket = { items, store: store ?? s.basket.store };
+    saveBasket(basket);
+    return { basket };
+  }),
+  setPacks: (productId, packs) => set((s) => {
+    const items = packs > 0 ? s.basket.items.map((i) => (i.productId === productId ? { ...i, packs } : i)) : s.basket.items.filter((i) => i.productId !== productId);
+    const basket = { ...s.basket, items };
+    saveBasket(basket);
+    return { basket };
+  }),
+  pinOrigin: (productId, routeId) => set((s) => {
+    const basket = { ...s.basket, items: s.basket.items.map((i) => (i.productId === productId ? { ...i, routeId } : i)) };
+    saveBasket(basket);
+    return { basket };
+  }),
+  setBasket: (b) => set((s) => {
+    const basket = { ...s.basket, ...b };
+    saveBasket(basket);
+    return { basket };
+  }),
+  setBasketOpen: (basketOpen) => set({ basketOpen }),
   stamp: (productId, routeId, grade, badgeIds) => {
     const prev = get().passport;
     const had = prev.products[productId];

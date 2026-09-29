@@ -5,6 +5,7 @@ import { badgesFor } from '../game/badges';
 import { gradeOf } from '../game/grade';
 import { computeRoute, fmtEur, MONTHS, type ComputedRoute } from '../model/compute';
 import { computeWaste, fmtMass } from '../model/waste';
+import { sfx } from '../game/sound';
 import { useApp } from '../store';
 import { Flag } from './ui';
 import { useCountUp } from './useCountUp';
@@ -58,6 +59,10 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, on
   const carKm = (c.co2e.total * kg) / CAR_KG_PER_KM;
   const farmerPct = Math.round((100 * c.cost.farmGate) / c.cost.shelf);
   const waste = useMemo(() => computeWaste(c), [c]);
+  const inBasket = useApp((s) => s.basket.items.find((i) => i.productId === c.product.id)?.packs ?? 0);
+  const currentStore = useApp((s) => s.store);
+  const addToBasket = useApp((s) => s.addToBasket);
+  const setBasketOpen = useApp((s) => s.setBasketOpen);
   const storeNode = c.steps[c.steps.length - 1];
   const town = storeNode.kind === 'node' ? storeNode.place.name.split(', ').slice(1).join(', ') || storeNode.place.name : '';
   const stamped = Object.keys(passport.products).length;
@@ -131,6 +136,9 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, on
       )}
 
       <div className="rs-actions">
+        {inBasket
+          ? <button className="done" onClick={() => setBasketOpen(true)}>🧺 In your basket ({inBasket})</button>
+          : <button onClick={() => { sfx.coin(); addToBasket(c.product.id, 1, currentStore); }}>🧺 Add to basket</button>}
         <button onClick={onReplay}>↺ Replay</button>
         <button onClick={onExplore}>🔎 Explore route</button>
         <button className="primary" onClick={onPickAnother}>🛒 Pick another</button>
