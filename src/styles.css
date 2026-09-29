@@ -746,3 +746,30 @@ button.trail-chip:hover { color: #fff; border-color: rgba(255,255,255,.3); }
 @keyframes ym-pulse { from { transform: scale(1); opacity: .9; } to { transform: scale(3.4); opacity: 0; } }
 .ym-label { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; color: #0f172a; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 @media (prefers-reduced-motion: reduce) { .ym-pulse, .near-spin { animation: none; } }
+
+/* ================================================================ food waste */
+.waste-lead { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: #e2e8f0; }
+.waste-funnel { display: flex; gap: 2px; height: 16px; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,.05); }
+.waste-funnel i { min-width: 3px; }
+.waste-funnel-legend { display: flex; justify-content: space-between; margin: 4px 0 10px; font-size: 11px; color: var(--muted); }
+.waste-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.waste-stages li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c); }
+.ws-icon { font-size: 17px; line-height: 1.25; }
+.ws-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.ws-top span { color: #cbd5e1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ws-body small { display: block; margin: 1px 0 5px; font-size: 11px; color: var(--muted); }
+.wf-fates { display: flex; flex-wrap: wrap; gap: 4px; }
+.wf-fate { padding: 2px 7px; border-radius: 999px; font-size: 11px; white-space: nowrap; color: #e2e8f0; background: color-mix(in srgb, var(--c) 16%, transparent); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); }
+.waste-cost { display: grid; gap: 6px; margin: 10px 0 4px; padding: 10px 12px; border-radius: 12px; background: rgba(251,191,36,.06); border: 1px solid rgba(251,191,36,.2); }
+.waste-cost p { margin: 0; font-size: 12.5px; line-height: 1.45; color: #e2e8f0; }
+.waste h5 small { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--muted); }
+.waste-fates { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.waste-fates li { display: grid; grid-template-columns: 20px minmax(0, 11.5em) 1fr auto; align-items: center; gap: 8px; font-size: 12px; }
+.wfl-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #cbd5e1; }
+.wfl-bar { height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,.06); }
+.wfl-bar i { display: block; height: 100%; border-radius: 4px; background: var(--c); }
+.waste-fates b { font-size: 12px; font-variant-numeric: tabular-nums; }
+.j-lost { color: #fda4af; }
+.rs-waste { margin-top: 6px; }
+.lc-waste { margin: -2px 0 8px; font-size: 12px; line-height: 1.45; color: #cbd5e1; }
+.lc-waste b { color: #fff; }

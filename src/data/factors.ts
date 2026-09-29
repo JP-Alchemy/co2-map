@@ -66,4 +66,5 @@ export const SOURCES = [
   { id: 'wur', label: 'Wageningen University & Research, greenhouse horticulture energy monitor (Energiemonitor Glastuinbouw)', url: 'https://www.wur.nl/' },
   { id: 'cbs', label: 'CBS StatLine, Dutch imports of fresh fruit and vegetables by origin country', url: 'https://opendata.cbs.nl/' },
   { id: 'osm', label: 'OpenStreetMap contributors (store locations, ODbL)', url: 'https://www.openstreetmap.org/copyright' },
+  { id: 'fao-waste', label: 'FAO (2011), Global food losses and food waste: extent, causes and prevention (Gustavsson et al.): loss rates by stage, region and food group', url: 'https://www.fao.org/3/mb060e/mb060e.pdf' },
 ];

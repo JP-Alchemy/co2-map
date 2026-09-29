@@ -51,6 +51,23 @@ export function About() {
           <li><b>Every line is a full modelled route</b>, from farm to a store near that distribution centre, using the same factors as the rest of the map, so the CO2e, distance and days per country and per grocer are comparable. Averages are weighted by volume.</li>
         </ul>
 
+        <h3>Food waste</h3>
+        <p>
+          Every product also shows how much food is lost between the field and the plate, where it goes, and what that adds to the price. The loss rates are FAO's
+          stage-by-stage averages (Gustavsson et al. 2011): at the farm, in packing, storage and transport, in the distribution centre and store, and at home. Each is a
+          share of what reaches that stage, so they compound: to put one kilo of fruit on the shelf, about one and a half kilos are harvested. The farm, packing and
+          transport rates are those of the origin's region; the shop and home rates are Europe's. FAO has no separate figure for eggs, so those are our estimate. For
+          fresh produce, FAO's processing losses (canning, juicing) are replaced by a 2% loss at grading and packing.
+        </p>
+        <p>
+          Food lost after harvest has already been paid for (farm price, packing, freight, cooling, handling) and has already caused emissions; the chain recovers that
+          cost through the price of what does sell, which is the share of the shelf price shown. Losses on the farm are already priced into the farm-gate price and the
+          growing footprint per kilo sold, so they are counted in kilos only. The CO<sub>2</sub>e of lost food is shown next to the grade, not in it. Where the lost food ends up
+          (food banks, other food, animal feed, rendering, biogas, back into the soil, the green bin, incineration or the drain) is our estimate of typical Dutch practice,
+          listed best use first after the Dutch food waste hierarchy (the "ladder van Moerman"). All of it is <ConfidenceBadge level="extrapolated" />: regional averages, not
+          measurements of any chain; individual chains and stores can do better or worse.
+        </p>
+
         <h3>Near me</h3>
         <p>
           <b>Near me</b> asks your browser where you are (only when you press it, and only with your permission) and looks that point up in the store map already loaded in this page:

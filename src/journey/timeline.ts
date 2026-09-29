@@ -3,6 +3,8 @@ import { FUEL_CO2E_PER_L } from '../data/factors';
 import { clamp01, ease, fitCam, flyCam, pitchFor, slerp, type Cam, type Pad } from '../map/camera';
 import type { ComputedLeg, ComputedNode, ComputedRoute } from '../model/compute';
 import { haversineKm } from '../model/geo';
+import { computeWaste, type Waste } from '../model/waste';
+import type { Fate } from '../data/waste';
 import type { TransportMode } from '../types';
 
 /**
@@ -34,6 +36,9 @@ export interface Totals {
   fuelL: number;
   cost: Record<CostPart, number>;
   byMode: Partial<Record<TransportMode, number>>;
+  /** kg of food lost on the way for this pack to reach the shelf, and where it went */
+  lost: number;
+  lostBy: Partial<Record<Fate, number>>;
 }
 
 export interface Segment {
@@ -63,17 +68,20 @@ export interface Timeline {
   view: { w: number; h: number; pad: Pad };
   packKg: number;
   steps: number;
+  waste: Waste;
 }
 
 export function zeroTotals(): Totals {
-  return { km: 0, hours: 0, grow: 0, transport: 0, storage: 0, fuelL: 0, cost: { farmer: 0, packing: 0, transport: 0, storage: 0, importer: 0, retailer: 0, vat: 0 }, byMode: {} };
+  return { km: 0, hours: 0, grow: 0, transport: 0, storage: 0, fuelL: 0, cost: { farmer: 0, packing: 0, transport: 0, storage: 0, importer: 0, retailer: 0, vat: 0 }, byMode: {}, lost: 0, lostBy: {} };
 }
 
 function addScaled(a: Totals, d: Totals, k: number): Totals {
   const out: Totals = {
     km: a.km + d.km * k, hours: a.hours + d.hours * k, grow: a.grow + d.grow * k, transport: a.transport + d.transport * k,
     storage: a.storage + d.storage * k, fuelL: a.fuelL + d.fuelL * k, cost: { ...a.cost }, byMode: { ...a.byMode },
+    lost: a.lost + d.lost * k, lostBy: { ...a.lostBy },
   };
+  for (const [f, v] of Object.entries(d.lostBy) as [Fate, number][]) out.lostBy[f] = (out.lostBy[f] ?? 0) + v * k;
   for (const p of COST_PARTS) out.cost[p.key] += d.cost[p.key] * k;
   for (const [m, v] of Object.entries(d.byMode) as [TransportMode, number][]) out.byMode[m] = (out.byMode[m] ?? 0) + v * k;
   return out;
@@ -94,6 +102,7 @@ const FOLLOW = 0.32;
 
 export function buildTimeline(c: ComputedRoute, start: Cam, view: { w: number; h: number; pad: Pad }): Timeline {
   const kg = c.product.pack.kg;
+  const waste = computeWaste(c);
   const nodes = c.steps.filter((s): s is ComputedNode => s.kind === 'node');
   const packing = nodes.find((n) => n.step.role === 'packing' || n.step.role === 'processing') ?? nodes[0];
   const importer = nodes.find((n) => n.step.role === 'import' || n.step.role === 'ripening') ?? nodes.find((n) => n.step.role === 'dc') ?? nodes[nodes.length - 1];
@@ -120,6 +129,11 @@ export function buildTimeline(c: ComputedRoute, start: Cam, view: { w: number; h
       if (s === packing) d.cost.packing = c.cost.packing * kg;
       if (s === importer) d.cost.importer = c.cost.importMargin * kg;
       if (role === 'store') { d.cost.retailer = c.cost.retailMargin * kg; d.cost.vat = c.cost.vat * kg; }
+      for (const w of waste.nodes) {
+        if (w.index !== s.index) continue;
+        d.lost += w.kg * kg;
+        for (const f of w.fates) d.lostBy[f.fate] = (d.lostBy[f.fate] ?? 0) + f.kg * kg;
+      }
       const dur = role === 'origin' ? NODE_SECONDS.origin : role === 'store' ? NODE_SECONDS.store : NODE_SECONDS.other;
       push({ kind: 'node', node: s, delta: d, ordinal: i + 1 }, dur);
     } else {
@@ -145,7 +159,7 @@ export function buildTimeline(c: ComputedRoute, start: Cam, view: { w: number; h
   for (const l of legs) all.push(...l.leg!.path);
 
   return {
-    segments, total: t, final: acc, start, view, packKg: kg, steps: c.steps.length,
+    segments, total: t, final: acc, start, view, packKg: kg, steps: c.steps.length, waste,
     origin: { center: originNode.coords, zoom: originZoom, pitch: pitchFor(originZoom) },
     store: { center: storeNode.coords, zoom: Math.min(13, lastLegZoom + 0.9), pitch: pitchFor(Math.min(13, lastLegZoom + 0.9)) },
     overview: fitCam(all, view.w, view.h, view.pad, 11),

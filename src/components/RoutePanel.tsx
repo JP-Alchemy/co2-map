@@ -3,9 +3,11 @@ import { MODES, PLACES, PRODUCERS, STORAGE } from '../data';
 import { CAR_KG_PER_KM } from '../data/factors';
 import { ROLE_ICON, ROLE_LABEL } from '../data/labels';
 import { fmtDuration, fmtEur, fmtKg, fmtKm, inSeason, MONTHS, type ComputedRoute } from '../model/compute';
+import { computeWaste, fmtMass } from '../model/waste';
 import { useApp } from '../store';
 import type { Product, SupplyRoute } from '../types';
 import { Bar, ConfidenceBadge, Flag, Tile } from './ui';
+import { WasteSection } from './WasteSection';
 
 
 interface Props {
@@ -81,6 +83,9 @@ function RouteDetail({ c, activeStep, liveStep, onHover, onFocus, useRoads, setU
   const perPack = c.co2e.total * packKg;
   const carKm = perPack / CAR_KG_PER_KM;
   const modes = Object.entries(c.byMode) as [keyof typeof MODES, { km: number; co2eKg: number }][];
+  // food lost at each stop, per kilo that reaches the shelf
+  const lostAt = new Map<number, number>();
+  for (const n of computeWaste(c).nodes) lostAt.set(n.index, (lostAt.get(n.index) ?? 0) + n.kg);
 
   return (
     <>
@@ -103,7 +108,7 @@ function RouteDetail({ c, activeStep, liveStep, onHover, onFocus, useRoads, setU
                 <span className="j-icon">{ROLE_ICON[s.step.role]}</span>
                 <div className="j-body">
                   <div className="j-title"><Flag country={s.place.country} /> {s.place.name} <ConfidenceBadge level={s.place.confidence} compact /></div>
-                  <div className="j-meta">{ROLE_LABEL[s.step.role]}{s.step.days > 0 && <> · {s.step.days < 1 ? `${Math.round(s.step.days * 24)} h` : `${s.step.days} day${s.step.days > 1 ? 's' : ''}`} {sf.label.toLowerCase()}</>}{s.co2eKg > 0.0005 && <> · {fmtKg(s.co2eKg)} kg CO2e/kg</>}</div>
+                  <div className="j-meta">{ROLE_LABEL[s.step.role]}{s.step.days > 0 && <> · {s.step.days < 1 ? `${Math.round(s.step.days * 24)} h` : `${s.step.days} day${s.step.days > 1 ? 's' : ''}`} {sf.label.toLowerCase()}</>}{s.co2eKg > 0.0005 && <> · {fmtKg(s.co2eKg)} kg CO2e/kg</>}{(lostAt.get(s.index) ?? 0) >= 0.0005 && <span className="j-lost" title="Food lost here, per kilo that reaches the shelf"> · 🗑️ {fmtMass(lostAt.get(s.index)!)} lost</span>}</div>
                   {(s.step.note || s.place.note) && <div className="j-note">{s.step.note ?? s.place.note}</div>}
                 </div>
               </li>
@@ -143,6 +148,9 @@ function RouteDetail({ c, activeStep, liveStep, onHover, onFocus, useRoads, setU
         { label: 'VAT', value: c.cost.vat, color: '#cbd5e1' },
       ]} />
       <p className="fineprint">Shelf price {fmtEur(c.cost.shelf)}/kg is a typical 2026 figure; the split is estimated from farm-gate prices and freight rates and is <ConfidenceBadge level="extrapolated" />.</p>
+
+      <h4>Food waste</h4>
+      <WasteSection c={c} />
 
       <h4>Who grew it</h4>
       <ul className="producers">

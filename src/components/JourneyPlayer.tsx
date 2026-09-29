@@ -11,6 +11,7 @@ import {
 import { MODE_BLURB, vehicleSvg } from '../journey/vehicles';
 import { clamp01, type Cam, type Pad } from '../map/camera';
 import { fmtEur, type ComputedRoute } from '../model/compute';
+import { FATE_ORDER, FATES, type Fate } from '../data/waste';
 import type { TransportMode } from '../types';
 import { ResultScreen } from './ResultScreen';
 import { Flag, Odo } from './ui';
@@ -46,7 +47,9 @@ function hudPad(w: number): Pad {
 }
 /** Trail width by how carbon-heavy the mode is per tonne-km: planes leave a fat trail, ships a thin one. */
 const trailWidth = (mode: TransportMode) => 2.4 + 7 * Math.sqrt(MODES[mode].co2ePerTkm / MODES.air.co2ePerTkm);
-type LedgerKey = 'km' | 'time' | 'co2' | 'fuel' | 'cost';
+type LedgerKey = 'km' | 'time' | 'co2' | 'fuel' | 'cost' | 'waste';
+/** grams (or kg) of food, split for the rolling digits */
+const fmtLost = (kg: number) => (kg < 1 ? { v: String(Math.round(kg * 1000)), u: 'g' } : { v: kg.toFixed(2), u: 'kg' });
 const MODE_SOUND: Partial<Record<TransportMode, () => void>> = { truck: sfx.truck, reefer_truck: sfx.truck, reefer_ship: sfx.horn, ferry: sfx.horn, air: sfx.whoosh, rail: sfx.train };
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 function currentCam(m: MapLibreMap): Cam {
@@ -236,6 +239,12 @@ export function JourneyPlayer({ map, computed, seek, onStep, onClose, onPickAnot
             if (eur >= 0.005) {
               const parts = COST_PARTS.filter((x) => d.cost[x.key] >= 0.005);
               particle(from, 'cost', `+${fmtEur(eur)}${parts.length === 1 ? ' ' + parts[0].short : ''}`, parts.length === 1 ? parts[0].color : '#e2e8f0', 110 * k++);
+            }
+            // food lost here, tagged with where most of it goes
+            if (d.lost >= 0.0005) {
+              const main = (Object.entries(d.lostBy) as [Fate, number][]).sort((x, y) => y[1] - x[1])[0]?.[0];
+              const l = fmtLost(d.lost);
+              particle(from, 'waste', `−${l.v} ${l.u}${main ? ' ' + FATES[main].icon : ''}`, '#fb7185', 110 * k++);
             }
           }
         } else if (s.kind === 'leg' && a < s.t0 + 0.05 && s.t0 + 0.05 <= b) {
@@ -458,7 +467,8 @@ function Caption({ c, tl, seg, index }: { c: ComputedRoute; tl: Timeline; seg: S
 // ------------------------------------------------------------------ ledger (right)
 function Ledger({ c, tl, tot, seg, p, index, onRow }: { c: ComputedRoute; tl: Timeline; tot: Totals; seg: Segment; p: number; index: number; onRow: (key: LedgerKey, e: HTMLDivElement | null) => void }) {
   const fin = tl.final;
-  const km = fmtKmNum(tot.km), time = fmtTime(tot.hours), co2 = fmtCo2(co2Of(tot)), fuel = fmtFuel(tot.fuelL);
+  const km = fmtKmNum(tot.km), time = fmtTime(tot.hours), co2 = fmtCo2(co2Of(tot)), fuel = fmtFuel(tot.fuelL), lost = fmtLost(tot.lost);
+  const fates = FATE_ORDER.filter((f) => (fin.lostBy[f] ?? 0) > 0);
   const d = seg.delta;
   // "+…" chips for what the current stop or leg adds, visible while it lands
   const chipsOn = seg.kind === 'leg' || (seg.kind === 'node' && p > 0.06 && p < 0.92);
@@ -488,6 +498,11 @@ function Ledger({ c, tl, tot, seg, p, index, onRow }: { c: ComputedRoute; tl: Ti
       <Row rowRef={(e) => onRow('cost', e)} icon="💶" label="Price so far" v={fmtEur(costOf(tot))} u={`of ${fmtEur(costOf(fin))}`}
         chip={chip(costOf(d), `${fmtEur(costOf(d))}${costParts.length === 1 ? ' ' + costParts[0].short : ''}`)}>
         <Stack total={costOf(fin)} parts={COST_PARTS.map((part) => ({ key: part.key, value: tot.cost[part.key], color: part.color }))} />
+      </Row>
+      <Row rowRef={(e) => onRow('waste', e)} icon="🗑️" label="Food lost" hint="on the way" v={lost.v} u={lost.u}
+        chip={chip(d.lost, `${fmtLost(d.lost).v} ${fmtLost(d.lost).u}`)}>
+        <Stack total={fin.lost} parts={fates.map((f) => ({ key: f, value: tot.lostBy[f] ?? 0, color: FATES[f].color }))} />
+        <div className="jr-legend">{fates.filter((f) => (tot.lostBy[f] ?? 0) >= 0.0005).map((f) => <span key={f} style={{ '--c': FATES[f].color } as CSSProperties} title={`${FATES[f].label}: ${FATES[f].note}`}><i />{FATES[f].icon} {fmtLost(tot.lostBy[f] ?? 0).v} {fmtLost(tot.lostBy[f] ?? 0).u}</span>)}</div>
       </Row>
     </div>
   );
