@@ -9,6 +9,7 @@ import { useComputedRoute } from './model/useRoute';
 import { storePlaceOf, useApp } from './store';
 import type { StoreProps } from './types';
 import { About } from './components/About';
+import { BasketPanel } from './components/BasketPanel';
 import { ChainPanel } from './components/ChainPanel';
 import { ChainSelect } from './components/ChainSelect';
 import { Dock } from './components/Dock';
@@ -34,7 +35,7 @@ export default function App() {
   const [lcFocus, setLcFocus] = useState<LcFocus>(null);
   const [lcJourney, setLcJourney] = useState<{ flow: Flow; run: number } | null>(null);
   const [nearFocus, setNearFocus] = useState<string | null>(null);
-  const { lens, lifecycleId, chainId, store, productId, routeId, month, view, useRoads, fx, nearby, here, setProduct, setRoute, setMonth, setLifecycle } = useApp();
+  const { lens, lifecycleId, chainId, store, productId, routeId, month, view, useRoads, fx, nearby, here, basketOpen, setProduct, setRoute, setMonth, setLifecycle } = useApp();
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/stores.geojson`).then((r) => r.json()).then(setStores).catch(() => setStores({ type: 'FeatureCollection', features: [] }));
@@ -105,7 +106,7 @@ export default function App() {
   const anyJourney = journeyActive || lcJourneyActive;
 
   return (
-    <div className={`app mode-${mode} lens-${lens} ${lcPreview ? 'previewing' : ''}`}>
+    <div className={`app mode-${mode} lens-${lens} ${lcPreview ? 'previewing' : ''} ${basketOpen && !anyJourney ? 'basket-open' : ''}`}>
       <main className={`map-wrap ${fx.grain ? 'fx-grain' : ''} ${anyJourney ? 'journey-on' : ''}`}>
         <MapView stores={stores} computed={computed} activeStep={activeStep} focusStep={focusStep} journeyActive={anyJourney}
           preview={preview} dockOpen={dockVisible && dockOpen} lifecycle={lifecycle} lcPreview={lcPreview} lcFocus={lcFocus} onLcFocus={setLcFocus}
@@ -142,6 +143,9 @@ export default function App() {
           <JourneyPlayer key={`p${lcJourney.run}`} map={map} computed={lcJourney.flow.computed} seek={null}
             onClose={closeLcJourney} onPickAnother={closeLcJourney} />
         )}
+
+        {/* the weekly shop steps aside while a journey plays, and comes back after */}
+        {basketOpen && !anyJourney && <BasketPanel />}
 
         {!stores && lens === 'grocer' && <div className="toast top">Loading 3,000 store locations…</div>}
         {mode === 'chain' && <div className="toast">🛒 Click a store to shop there · clusters zoom in</div>}

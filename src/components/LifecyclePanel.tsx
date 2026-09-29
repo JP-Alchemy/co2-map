@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { MODES } from '../data';
 import { ROLE_ICON } from '../data/labels';
 import { MARKET_BY_ID } from '../data/markets';
 import { gradeOf } from '../game/grade';
 import { fmtKg, fmtKm, MONTHS } from '../model/compute';
 import type { Flow, LcFocus, Lifecycle } from '../model/lifecycle';
+import { computeWaste } from '../model/waste';
 import { useApp } from '../store';
 import type { TransportMode } from '../types';
 import { ConfidenceBadge, Flag } from './ui';
@@ -34,6 +35,13 @@ export function LifecyclePanel({ lc, focus, onFocus, onFollow }: Props) {
   const open = focusMarket ?? openPick;
   const rows = useRef<Record<string, HTMLLIElement | null>>({});
   useEffect(() => { if (focusMarket) rows.current[focusMarket]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [focusMarket]);
+
+  // food loss across all flows, weighted by volume
+  const waste = useMemo(() => {
+    let harvested = 0, priceShare = 0, vol = 0;
+    for (const f of lc.flows) { const w = computeWaste(f.computed); harvested += w.harvestedKg * f.volume; priceShare += w.priceShare * f.volume; vol += f.volume; }
+    return { harvested: harvested / (vol || 1), priceShare: priceShare / (vol || 1) };
+  }, [lc]);
 
   // the mode that carries it furthest, for the transport stage's icon
   const kmByMode = new Map<TransportMode, number>();
@@ -74,6 +82,10 @@ export function LifecyclePanel({ lc, focus, onFocus, onFollow }: Props) {
         <GradeChip co2={lc.total.co2} />
         <span><b>{fmtKg(lc.total.co2)}</b> kg CO<sub>2</sub>e per kg on average · {days(lc.total.days)} from harvest to shelf</span>
       </div>
+      <p className="lc-waste">
+        🗑️ About <b>{waste.harvested.toFixed(2)} kg</b> is harvested for every kilo sold, and <b>{Math.round(waste.priceShare * 100)}%</b> of the price pays for what is lost after harvest.
+        Follow a grocer's flow to see where the lost food goes.
+      </p>
 
       <h4>Where it grows in {MONTHS[month - 1]}</h4>
       <ul className="lc-list">

@@ -27,6 +27,9 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
   const setProduct = useApp((s) => s.setProduct);
   const passport = useApp((s) => s.passport);
   const routeId = useApp((s) => s.routeId);
+  const basket = useApp((s) => s.basket);
+  const addToBasket = useApp((s) => s.addToBasket);
+  const inBasket = (id: string) => basket.items.find((i) => i.productId === id)?.packs ?? 0;
   const place = useMemo(() => storePlaceOf(store), [store]);
   const [hover, setHover] = useState<{ id: string; x: number } | null>(null);
 
@@ -80,7 +83,8 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
             <div key={cat} className="hb-group">
               <span className="hb-group-label">{label}</span>
               {group.map(({ p, flags, grade }) => (
-                <button key={p.id} className={`hb-tile ${p.id === currentId ? 'cur' : ''}`}
+                <div key={p.id} className="hb-slot">
+                <button className={`hb-tile ${p.id === currentId ? 'cur' : ''}`}
                   onMouseEnter={(e) => enter(p.id, e.currentTarget)} onFocus={(e) => enter(p.id, e.currentTarget)} onBlur={leave}
                   onClick={() => { sfx.select(); leave(); setProduct(p.id); }}
                   aria-label={`${p.name}${grade ? `, CO2e grade ${grade.grade}` : ''}`}>
@@ -90,6 +94,11 @@ export function Hotbar({ chain, store, currentId, onPreview }: Props) {
                   {grade && <span className="hb-grade" style={{ background: grade.color, color: grade.ink }}>{grade.grade}</span>}
                   {passport.products[p.id] && <span className="hb-stamp" title="Journey completed">✓</span>}
                 </button>
+                <button className={`hb-add ${inBasket(p.id) ? 'in' : ''}`} onClick={() => { sfx.coin(); addToBasket(p.id, 1, store); }}
+                  title={inBasket(p.id) ? `${inBasket(p.id)} in your basket: add another` : `Add ${p.name} to your basket`} aria-label={`Add ${p.name} to your basket`}>
+                  {inBasket(p.id) ? <>🧺<b>{inBasket(p.id)}</b></> : '+'}
+                </button>
+                </div>
               ))}
             </div>
           );

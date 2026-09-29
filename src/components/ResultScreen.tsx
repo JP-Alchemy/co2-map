@@ -4,6 +4,8 @@ import { CAR_KG_PER_KM } from '../data/factors';
 import { badgesFor } from '../game/badges';
 import { gradeOf } from '../game/grade';
 import { computeRoute, fmtEur, MONTHS, type ComputedRoute } from '../model/compute';
+import { computeWaste, fmtMass } from '../model/waste';
+import { sfx } from '../game/sound';
 import { useApp } from '../store';
 import { Flag } from './ui';
 import { useCountUp } from './useCountUp';
@@ -56,6 +58,11 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, on
   const price = useCountUp(c.cost.shelf * kg, 1100, 300);
   const carKm = (c.co2e.total * kg) / CAR_KG_PER_KM;
   const farmerPct = Math.round((100 * c.cost.farmGate) / c.cost.shelf);
+  const waste = useMemo(() => computeWaste(c), [c]);
+  const inBasket = useApp((s) => s.basket.items.find((i) => i.productId === c.product.id)?.packs ?? 0);
+  const currentStore = useApp((s) => s.store);
+  const addToBasket = useApp((s) => s.addToBasket);
+  const setBasketOpen = useApp((s) => s.setBasketOpen);
   const storeNode = c.steps[c.steps.length - 1];
   const town = storeNode.kind === 'node' ? storeNode.place.name.split(', ').slice(1).join(', ') || storeNode.place.name : '';
   const stamped = Object.keys(passport.products).length;
@@ -82,6 +89,10 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, on
       <p className="rs-line">
         {grade.label} footprint: {c.co2e.total.toFixed(2)} kg CO<sub>2</sub>e per kilo. Your {c.product.pack.label} is like driving{' '}
         <b>{carKm < 1 ? `${Math.round(carKm * 1000)} m` : `${carKm.toFixed(1)} km`}</b> in a petrol car; the farmer gets <b>{farmerPct}%</b> of the price.
+      </p>
+      <p className="rs-line rs-waste">
+        🗑️ About <b>{fmtMass((waste.harvestedKg - 1) * kg)}</b> was lost on the way to get this pack on the shelf, and <b>{Math.round(waste.priceShare * 100)}%</b> of its price
+        pays for that. At home another <b>{Math.round((waste.stages.find((x) => x.stage === 'home')?.rate ?? 0) * 100)}%</b> of what's bought is usually thrown away.
       </p>
 
       {badges.length > 0 && (
@@ -125,6 +136,9 @@ export function ResultScreen({ c, onReplay, onExplore, onPickAnother, onSwap, on
       )}
 
       <div className="rs-actions">
+        {inBasket
+          ? <button className="done" onClick={() => setBasketOpen(true)}>🧺 In your basket ({inBasket})</button>
+          : <button onClick={() => { sfx.coin(); addToBasket(c.product.id, 1, currentStore); }}>🧺 Add to basket</button>}
         <button onClick={onReplay}>↺ Replay</button>
         <button onClick={onExplore}>🔎 Explore route</button>
         <button className="primary" onClick={onPickAnother}>🛒 Pick another</button>

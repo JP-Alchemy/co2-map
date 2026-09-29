@@ -2,6 +2,7 @@
 import { CHAINS, PLACES, PRODUCTS, PRODUCERS } from '../src/data';
 import { computeRoute, fmtKg } from '../src/model/compute';
 import { buildLifecycle } from '../src/model/lifecycle';
+import { computeWaste } from '../src/model/waste';
 import type { Place } from '../src/types';
 
 const sampleStore: Place = { id: 'store_test', name: 'Test store, Utrecht', kind: 'store', country: 'NL', coords: [5.12, 52.09], confidence: 'verified' };
@@ -15,9 +16,18 @@ for (const p of PRODUCTS) {
         const c = computeRoute(p, r, chain, sampleStore, PLACES);
         const bad = [c.co2e.total, c.cost.shelf, c.totalKm, c.totalDays].some((v) => !Number.isFinite(v));
         if (bad) { console.error(`✗ ${p.id}/${r.id}/${chain.id}: NaN`); errors++; }
+        // food waste: finite, compounding correctly, every lost kilo placed at a stop and given a destination
+        const w = computeWaste(c);
+        const upstream = w.stages.filter((st) => st.stage !== 'home').reduce((a, st) => a + st.kg, 0);
+        const atStops = w.nodes.reduce((a, n) => a + n.kg, 0);
+        const fated = w.fates.reduce((a, f) => a + f.kg, 0);
+        const wasteBad = ![w.harvestedKg, w.lostEur, w.lostCo2e, w.priceShare].every(Number.isFinite) || w.harvestedKg < 1
+          || Math.abs(w.harvestedKg - 1 - upstream) > 1e-9 || Math.abs(atStops - upstream) > 1e-9
+          || Math.abs(fated - upstream - w.stages.find((st) => st.stage === 'home')!.kg) > 1e-9 || w.priceShare < 0 || w.priceShare > 0.5;
+        if (wasteBad) { console.error(`✗ ${p.id}/${r.id}/${chain.id}: food waste figures don't add up`); errors++; }
         if (chain.id === 'ah') {
           const modes = Object.entries(c.byMode).map(([m, v]) => `${m}:${Math.round(v.km)}`).join(' ');
-          console.log(`${p.emoji} ${p.id.padEnd(10)} ${r.id.padEnd(14)} co2e=${fmtKg(c.co2e.total).padStart(6)} (grow ${fmtKg(c.co2e.production)}, tr ${fmtKg(c.co2e.transport)}, st ${fmtKg(c.co2e.storage)})  km=${Math.round(c.totalKm).toString().padStart(6)} days=${c.totalDays.toFixed(1).padStart(5)}  retail€=${c.cost.retailMargin.toFixed(2)}  ${modes}`);
+          console.log(`${p.emoji} ${p.id.padEnd(10)} ${r.id.padEnd(14)} co2e=${fmtKg(c.co2e.total).padStart(6)} (grow ${fmtKg(c.co2e.production)}, tr ${fmtKg(c.co2e.transport)}, st ${fmtKg(c.co2e.storage)})  km=${Math.round(c.totalKm).toString().padStart(6)} days=${c.totalDays.toFixed(1).padStart(5)}  retail€=${c.cost.retailMargin.toFixed(2)}  harvest=${w.harvestedKg.toFixed(2)}kg waste=${Math.round(w.priceShare * 100)}%€  ${modes}`);
         }
       } catch (e) { console.error(`✗ ${p.id}/${r.id}/${chain.id}: ${(e as Error).message}`); errors++; }
     }

@@ -63,8 +63,15 @@ export function HudControls() {
   const view = useApp((s) => s.view);
   const setView = useApp((s) => s.setView);
   const stamps = useApp((s) => Object.keys(s.passport.products).length);
+  const packs = useApp((s) => s.basket.items.reduce((n, i) => n + i.packs, 0));
+  const basketOpen = useApp((s) => s.basketOpen);
+  const setBasketOpen = useApp((s) => s.setBasketOpen);
   return (
     <div className="hud-controls" role="group" aria-label="Settings">
+      <button className={`hud-btn basket-btn ${basketOpen ? 'on' : ''}`} aria-pressed={basketOpen} title="My weekly shop"
+        onClick={() => { sfx.select(); setBasketOpen(!basketOpen); }}>
+        🧺{packs > 0 && <b key={packs} className="basket-count">{packs}</b>}
+      </button>
       <span className="hud-pill passport" title="Products whose journey you have completed">🛂 {stamps}/{PRODUCTS.length}</span>
       <button className={`hud-btn ${fx.sound ? 'on' : ''}`} aria-pressed={fx.sound} title={fx.sound ? 'Sound on' : 'Sound off'}
         onClick={() => { setFx({ sound: !fx.sound }); if (!fx.sound) queueMicrotask(() => sfx.select()); }}>{fx.sound ? '🔊' : '🔇'}</button>
