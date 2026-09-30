@@ -71,19 +71,20 @@ export function ratesFor(group: WasteGroup, region: WasteRegion): FaoRates {
 }
 
 /** Where lost food ends up, best use first (after the Dutch "ladder van Moerman" food waste hierarchy). */
-export type Fate = 'food' | 'processing' | 'feed' | 'rendering' | 'biogas' | 'soil' | 'compost' | 'burned' | 'drain';
+export type Fate = 'food' | 'processing' | 'feed' | 'rendering' | 'biogas' | 'composting' | 'soil' | 'compost' | 'burned' | 'drain';
 export const FATES: Record<Fate, { label: string; icon: string; color: string; note: string }> = {
   food:       { label: 'Food banks & surplus apps', icon: '🤝', color: '#22c55e', note: 'Still eaten by people: donated to food banks (Voedselbanken) or sold off cheaply through apps.' },
   processing: { label: 'Made into other food',      icon: '🥫', color: '#84cc16', note: 'Outgraded or surplus produce turned into juice, soup, sauce or liquid egg.' },
   feed:       { label: 'Animal feed',               icon: '🐄', color: '#a3e635', note: 'Fed to cattle or pigs, or made into pet food and fish meal.' },
-  rendering:  { label: 'Rendered',                  icon: '🏭', color: '#facc15', note: 'Animal by-products rendered into fats and meal for industry and biofuel.' },
+  rendering:  { label: 'Rendered',                  icon: '🏭', color: '#c4b5fd', note: 'Animal by-products rendered into fats and meal for industry and biofuel.' },
   biogas:     { label: 'Biogas',                    icon: '⚡', color: '#fbbf24', note: 'Fermented into biogas for heat and power; the digestate goes back on the land.' },
+  composting: { label: 'Composting plant',          icon: '🪱', color: '#f59e0b', note: 'Composted at an industrial plant into soil improver for farms and gardens.' },
   soil:       { label: 'Back into the soil',        icon: '🌱', color: '#f59e0b', note: 'Left on the field or ploughed in: fruit that is too small, misshapen or unsold at harvest.' },
   compost:    { label: 'Green bin (compost)',        icon: '🍂', color: '#fb923c', note: 'Household food waste sorted into the green bin (GFT) is composted or fermented.' },
   burned:     { label: 'Burned with the rubbish',   icon: '🔥', color: '#f87171', note: 'Food in the residual waste bin is incinerated; some energy is recovered.' },
   drain:      { label: 'Down the drain',            icon: '🚿', color: '#e11d48', note: 'Liquids poured down the sink end up at the sewage works.' },
 };
-export const FATE_ORDER: Fate[] = ['food', 'processing', 'feed', 'rendering', 'biogas', 'soil', 'compost', 'burned', 'drain'];
+export const FATE_ORDER: Fate[] = ['food', 'processing', 'feed', 'rendering', 'biogas', 'composting', 'soil', 'compost', 'burned', 'drain'];
 
 type FateSplit = Partial<Record<Fate, number>>;
 /** Our estimate of where the food lost at each stage typically goes, by food group (shares add up to 1). */
@@ -91,13 +92,13 @@ export const FATE_SPLIT: Record<WasteGroup, Record<WasteStage, FateSplit>> = {
   fruitveg: {
     farm: { soil: 0.55, feed: 0.25, processing: 0.2 },
     handling: { feed: 0.4, processing: 0.2, biogas: 0.4 },
-    retail: { food: 0.2, feed: 0.1, biogas: 0.55, burned: 0.15 },
+    retail: { food: 0.2, feed: 0.1, biogas: 0.5, composting: 0.05, burned: 0.15 },
     home: { compost: 0.35, burned: 0.65 },
   },
   roots: {
     farm: { soil: 0.4, feed: 0.5, processing: 0.1 },
     handling: { feed: 0.6, processing: 0.2, biogas: 0.2 },
-    retail: { food: 0.15, feed: 0.2, biogas: 0.5, burned: 0.15 },
+    retail: { food: 0.15, feed: 0.2, biogas: 0.45, composting: 0.05, burned: 0.15 },
     home: { compost: 0.35, burned: 0.65 },
   },
   meat: {
@@ -121,7 +122,7 @@ export const FATE_SPLIT: Record<WasteGroup, Record<WasteStage, FateSplit>> = {
   eggs: {
     farm: { processing: 0.5, feed: 0.3, biogas: 0.2 },
     handling: { processing: 0.6, feed: 0.25, biogas: 0.15 },
-    retail: { food: 0.25, biogas: 0.55, burned: 0.2 },
+    retail: { food: 0.25, biogas: 0.5, composting: 0.05, burned: 0.2 },
     home: { compost: 0.3, burned: 0.7 },
   },
 };

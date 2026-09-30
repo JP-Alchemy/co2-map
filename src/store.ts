@@ -68,6 +68,9 @@ interface AppState {
   locateError: LocateError | null;
   basket: Basket;
   basketOpen: boolean;
+  /** the route of the unsold product from the store to the waste plants is drawn on the map */
+  afterlifeOn: boolean;
+  setAfterlifeOn: (on: boolean) => void;
   setLens: (lens: Lens) => void;
   setLifecycle: (id: string | null) => void;
   /** back to the start screen of the current lens */
@@ -119,12 +122,14 @@ export const useApp = create<AppState>((set, get) => ({
   locateError: null,
   basket: loadBasket(),
   basketOpen: false,
-  setLens: (lens) => set({ lens }),
-  setLifecycle: (lifecycleId) => set({ lifecycleId, lens: 'product' }),
-  goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null, nearby: false }),
-  setChain: (chainId) => set({ chainId, store: null, productId: null, routeId: null, nearby: false }),
-  setStore: (store) => set({ store, productId: null, routeId: null }),
-  setProduct: (productId) => set({ productId, routeId: null }),
+  afterlifeOn: false,
+  setAfterlifeOn: (afterlifeOn) => set({ afterlifeOn }),
+  setLens: (lens) => set({ lens, afterlifeOn: false }),
+  setLifecycle: (lifecycleId) => set({ lifecycleId, lens: 'product', afterlifeOn: false }),
+  goHome: () => set({ chainId: null, store: null, productId: null, routeId: null, lifecycleId: null, nearby: false, afterlifeOn: false }),
+  setChain: (chainId) => set({ chainId, store: null, productId: null, routeId: null, nearby: false, afterlifeOn: false }),
+  setStore: (store) => set({ store, productId: null, routeId: null, afterlifeOn: false }),
+  setProduct: (productId) => set({ productId, routeId: null, afterlifeOn: false }),
   setRoute: (routeId) => set({ routeId }),
   setMonth: (month) => set({ month }),
   setView: (view) => set({ view }),
@@ -143,8 +148,8 @@ export const useApp = create<AppState>((set, get) => ({
     );
   },
   setHere: (here) => set({ here, locateError: null }),
-  showNearby: () => set({ nearby: true, lens: 'grocer', chainId: null, store: null, productId: null, routeId: null }),
-  shopAt: (store) => set({ chainId: store.properties.chain, store, productId: null, routeId: null }),
+  showNearby: () => set({ nearby: true, lens: 'grocer', chainId: null, store: null, productId: null, routeId: null, afterlifeOn: false }),
+  shopAt: (store) => set({ chainId: store.properties.chain, store, productId: null, routeId: null, afterlifeOn: false }),
   addToBasket: (productId, packs = 1, store) => set((s) => {
     const items = s.basket.items.some((i) => i.productId === productId)
       ? s.basket.items.map((i) => (i.productId === productId ? { ...i, packs: i.packs + packs } : i))

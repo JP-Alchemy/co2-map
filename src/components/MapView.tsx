@@ -2,13 +2,17 @@ import { useEffect, useRef } from 'react';
 import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl, Popup, type GeoJSONSource, type MapLayerMouseEvent } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import '../map/worker';
-import type { FeatureCollection, Point, Position } from 'geojson';
+import type { Feature, FeatureCollection, Point, Position } from 'geojson';
 import { CHAINS, CHAIN_BY_ID, MODES } from '../data';
+import type { Facility } from '../data/afterlife';
+import { FATES } from '../data/waste';
 import { fitCam, type Pad } from '../map/camera';
 import { CloudLayer } from '../map/clouds';
 import { LifecycleOverlay } from '../map/lifecycleOverlay';
 import { LANDING_PAD, landingZoom, SATELLITE_STYLE } from '../map/style';
+import { computeAfterlife } from '../model/afterlife';
 import type { ComputedRoute } from '../model/compute';
+import { arcLine } from '../model/geo';
 import type { LcFocus, Lifecycle } from '../model/lifecycle';
 import { FAR_KM, fmtDistance, type Here, type Hit } from '../model/near';
 import { useApp, type StoreFeature } from '../store';
@@ -122,6 +126,20 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
         layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 11 }, paint: { 'text-color': '#fff' } });
       m.addLayer({ id: 'stores-pt', type: 'circle', source: 'stores', filter: ['!', ['has', 'point_count']],
         paint: { 'circle-color': chainColor as never, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' } });
+
+      // after the shelf: unsold food back to the DC (dashed) and on to the plants that take it
+      m.addSource('afterlife', { type: 'geojson', data: EMPTY });
+      m.addLayer({ id: 'al-casing', type: 'line', source: 'afterlife', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#020617', 'line-width': 7, 'line-opacity': 0.55 } });
+      m.addLayer({ id: 'al-back', type: 'line', source: 'afterlife', filter: ['==', ['get', 'kind'], 'backhaul'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-dasharray': [1.5, 1.5] } });
+      m.addLayer({ id: 'al-line', type: 'line', source: 'afterlife', filter: ['==', ['get', 'kind'], 'haul'], layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 4 } });
+      m.addLayer({ id: 'al-pt', type: 'circle', source: 'afterlife', filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-color': ['get', 'color'], 'circle-radius': 9, 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' } });
+      m.addLayer({ id: 'al-label', type: 'symbol', source: 'afterlife', filter: ['==', ['geometry-type'], 'Point'],
+        layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-optional': true },
+        paint: { 'text-color': '#fff', 'text-halo-color': halo, 'text-halo-width': 1.6 } });
 
       // near me: the stores around the player, the nearest of each chain labelled with its distance
       m.addSource('near', { type: 'geojson', data: EMPTY });
@@ -464,6 +482,47 @@ export function MapView({ stores, computed, activeStep, focusStep, journeyActive
     const m = map.current; if (!m || !ready.current) return;
     m.setFilter('near-focus', ['==', ['get', 'osm'], near?.focus ?? '']);
   }, [near?.focus]);
+
+  // ---- after the shelf: where the unsold product goes, drawn on request from the route panel
+  const afterlifeOn = useApp((s) => s.afterlifeOn);
+  const alShow = afterlifeOn && !!computed && !journeyActive && lens === 'grocer';
+  const wasAl = useRef(false);
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    const apply = () => {
+      const src = m.getSource('afterlife') as GeoJSONSource;
+      // the product's own route steps aside while its afterlife is drawn
+      const routeVisible = !alShow && !latest.current.journeyActive && latest.current.lens !== 'product';
+      for (const id of ROUTE_LAYERS) m.setLayoutProperty(id, 'visibility', routeVisible ? 'visible' : 'none');
+      if (!alShow || !computed) {
+        src.setData(EMPTY);
+        // back to the product's own route
+        if (wasAl.current && computed && !journeyActive) fitTo(m, routeCoords(computed), hudPad(m, dockRef.current, HOTBAR_BOTTOM), 12, 1200);
+        wasAl.current = false;
+        return;
+      }
+      const a = computeAfterlife(computed);
+      const hub = a.dc ?? a.store;
+      const feats: Feature[] = [];
+      if (a.dc) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: arcLine(a.store.coords, a.dc.coords, 0.12) }, properties: { kind: 'backhaul', color: '#cbd5e1' } });
+      // one pin per plant, even when it takes more than one kind of waste
+      const plants = new Map<string, { f: Facility; icons: string[]; color: string; share: number; km: number }>();
+      for (const d of a.dests) {
+        if (!d.facility) continue;
+        const p = plants.get(d.facility.id);
+        if (p) { p.icons.push(FATES[d.fate].icon); if (d.share > p.share) { p.share = d.share; p.color = FATES[d.fate].color; } }
+        else plants.set(d.facility.id, { f: d.facility, icons: [FATES[d.fate].icon], color: FATES[d.fate].color, share: d.share, km: d.tripKm });
+      }
+      for (const p of plants.values()) {
+        feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: arcLine(hub.coords, p.f.coords, 0.1) }, properties: { kind: 'haul', color: p.color } });
+        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p.f.coords }, properties: { color: p.color, label: `${p.icons.join(' ')} ${p.f.name} ${p.f.town}\n${Math.round(p.km)} km` } });
+      }
+      src.setData({ type: 'FeatureCollection', features: feats });
+      fitTo(m, [a.store.coords, hub.coords, ...[...plants.values()].map((p) => p.f.coords)], hudPad(m, dockRef.current, HOTBAR_BOTTOM), 11, 1600);
+      wasAl.current = true;
+    };
+    if (ready.current) apply(); else m.once(READY, apply);
+  }, [alShow, computed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- clouds on/off
   useEffect(() => {

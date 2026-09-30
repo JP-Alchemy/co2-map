@@ -77,6 +77,23 @@ export function About() {
           measurements of any chain; individual chains and stores can do better or worse.
         </p>
 
+        <h3>After the shelf</h3>
+        <p>
+          Each product also shows what happens to what the store doesn't sell. The shelf life is a typical number of days before it is pulled: set by the use-by date for
+          fresh meat and fish, the best-before date for milk and eggs (EU rules require eggs to reach shoppers within 21 days of laying), and freshness for fruit and
+          vegetables. Before throwing food away, Dutch supermarkets typically reduce its price, sell leftovers through surplus apps and give what is still good to food
+          banks; the rest rides back to the distribution centre on the delivery truck and is collected there by a waste company. Our model sends each kind of waste to
+          the nearest plant of that kind to the chain's DC: biogas plants (fermentation), composting plants, the rendering plant for meat and fish, or a waste-to-energy
+          incinerator. The plants are real, at approximate locations; which one takes a store's waste is an assumption. Landfill is shown at zero, as the Netherlands
+          bans landfilling separately collected food and other organic waste.
+        </p>
+        <p>
+          The trip is counted by road from the store, at the truck factor above; litres of diesel follow from the CO<sub>2</sub>e as for the journey. The electric
+          comparison assumes a battery-electric truck using about 1.1 kWh per km at an average 8-tonne load on the Dutch grid mix (about 0.3 kg CO<sub>2</sub>e per kWh).
+          Treatment emissions and the electricity recovered (biogas about 0.25 kWh per kilo, incineration about 0.1, rendering about 0.15) and the landfill comparison
+          (about 0.7 kg CO<sub>2</sub>e of methane per kilo) are indicative values in the range of European waste studies <ConfidenceBadge level="extrapolated" />.
+        </p>
+
         <h3>Near me</h3>
         <p>
           <b>Near me</b> asks your browser where you are (only when you press it, and only with your permission) and looks that point up in the store map already loaded in this page:
