@@ -32,6 +32,13 @@ up (food banks, other food, animal feed, biogas, compost, incineration…), and 
 the lost food accounts for. It shows in the route panel, as a "Food lost" counter during the journey and on the result
 screen.
 
+**After the shelf** follows what the store doesn't sell: how many days a product lasts on the shelf (use-by,
+best-before or freshness), what a Dutch supermarket tries first (reduced stickers, surplus apps, food banks), and
+where the rest goes: back to the DC on the delivery truck, then to the nearest biogas plant, composter, rendering
+plant or incinerator (real plants, approximate locations), with the extra kilometres, diesel and CO2e, what an
+electric truck would change, what treating it emits and the energy it gives back, and why landfill is zero in the
+Netherlands. One click draws that reverse route on the map.
+
 **Near me** finds the stores you most likely shop at: with your permission the browser's location (or a town or
 postcode you type) is matched against the store map already in the page, nothing is sent anywhere, and you get the
 nearest store of each chain with its distance and a rough walk, bike or drive time, plus a few more close by, on
@@ -133,6 +140,8 @@ src/model/routing.ts           optional real-road geometry for truck legs (publi
 src/model/lifecycle.ts         one product across every market: origins, flows to each grocer, totals
 src/data/waste.ts              food loss rates by stage, region and food group (FAO 2011), and where lost food goes
 src/model/waste.ts             food waste along a computed route: kg lost per stop, cost and CO2e of the losses
+src/data/afterlife.ts          shelf lives, what stores do with unsold food, Dutch waste plants, treatment factors
+src/model/afterlife.ts         where a store's unsold food goes: trip, diesel, electric comparison, treatment, energy
 src/model/basket.ts            the weekly shop: totals, swaps, best months and the basket's footprint in every month
 src/model/near.ts              near me: browser location, nearest store per chain, town/postcode lookup in the store data
 src/map/style.ts               satellite globe style (Esri imagery, OpenFreeMap labels, atmosphere)

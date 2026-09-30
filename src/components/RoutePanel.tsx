@@ -8,6 +8,7 @@ import { sfx } from '../game/sound';
 import { useApp } from '../store';
 import type { Product, SupplyRoute } from '../types';
 import { Bar, ConfidenceBadge, Flag, Tile } from './ui';
+import { AfterlifeSection } from './AfterlifeSection';
 import { WasteSection } from './WasteSection';
 
 
@@ -72,6 +73,13 @@ export function RoutePanel({ product, route, computed, activeStep, liveStep, jou
       {computed && route && <RouteDetail c={computed} activeStep={activeStep} liveStep={liveStep} onHover={onHover} onFocus={onFocus} useRoads={useRoads} setUseRoads={setUseRoads} />}
     </div>
   );
+}
+
+/** The after-the-shelf section, wired to the map's reverse-route overlay. */
+function AfterlifeOnMap({ c }: { c: ComputedRoute }) {
+  const on = useApp((s) => s.afterlifeOn);
+  const setOn = useApp((s) => s.setAfterlifeOn);
+  return <AfterlifeSection c={c} onMap={on} onToggleMap={() => setOn(!on)} />;
 }
 
 /** Add this product to the weekly-shop basket, or change how many packs are in it. */
@@ -173,6 +181,9 @@ function RouteDetail({ c, activeStep, liveStep, onHover, onFocus, useRoads, setU
 
       <h4>Food waste</h4>
       <WasteSection c={c} />
+
+      <h4>After the shelf</h4>
+      <AfterlifeOnMap c={c} />
 
       <h4>Who grew it</h4>
       <ul className="producers">
